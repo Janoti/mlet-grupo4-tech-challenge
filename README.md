@@ -81,7 +81,6 @@ Exemplo de organização (sugerida):
   - `logging.py` (logging estruturado)
   - `config.py` (configurações do projeto)
 
-Regra: notebooks chamam funções daqui (evita “código perdido” em notebook).
 
 ### `data/` — dados (não versionar dados pesados/sensíveis)
 Estrutura recomendada:
@@ -89,7 +88,6 @@ Estrutura recomendada:
 - `data/interim/` dados intermediários
 - `data/processed/` dados finais prontos para treino
 
-> Em geral, você **não** commita datasets grandes no GitHub (usar link, DVC, ou storage).
 
 ### `models/` — artefatos de modelo
 - `models/artifacts/` outputs do treino (modelos exportados, encoders, etc.)
@@ -153,12 +151,8 @@ Mínimo exigido (>= 3 testes):
 
 ---
 
-## 6) Próximos passos (imediatos)
+## 6) Próximos passos
 1. Preencher `docs/ml_canvas.md` (bem direto, 1 página)
 2. Criar notebook de EDA e consolidar “achados” (quality checks)
 3. Implementar baselines com CV estratificada + MLflow tracking
 
-Quando você quiser, eu te passo também:
-- um template pronto do `ml_canvas.md`
-- um template do `model_card.md`
-- um esqueleto básico de baselines + MLflow em `src/`
