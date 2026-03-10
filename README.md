@@ -81,7 +81,6 @@ Exemplo de organização (sugerida):
   - `logging.py` (logging estruturado)
   - `config.py` (configurações do projeto)
 
-Regra: notebooks chamam funções daqui (evita “código perdido” em notebook).
 
 ### `data/` — dados (não versionar dados pesados/sensíveis)
 Estrutura recomendada:
@@ -89,7 +88,6 @@ Estrutura recomendada:
 - `data/interim/` dados intermediários
 - `data/processed/` dados finais prontos para treino
 
-> Em geral, você **não** commita datasets grandes no GitHub (usar link, DVC, ou storage).
 
 ### `models/` — artefatos de modelo
 - `models/artifacts/` outputs do treino (modelos exportados, encoders, etc.)
