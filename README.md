@@ -151,7 +151,42 @@ Mínimo exigido (>= 3 testes):
 
 ---
 
-## 6) Próximos passos
+## 6) Dataset de base no repositório
+
+Este repositório inclui um dataset de base para bootstrap do projeto.
+
+### Onde está o CSV?
+Após a geração, o arquivo fica em:
+
+- `data/raw/telecom_churn_base.csv`
+
+Este é o dataset que o grupo deve usar para:
+- validar o arcabouço (estrutura do repo),
+- rodar EDA inicial,
+- treinar baselines,
+- registrar experimentos no MLflow.
+
+### Como o dataset é gerado?
+O dataset é criado pelo script:
+
+- `scripts/generate_dataset.py`
+
+Ele gera **50.000 linhas** (por padrão no nosso uso atual) com um conjunto de colunas típicas de churn em telecom, incluindo:
+- identificador do cliente (`customer_id`)
+- variáveis numéricas (ex.: `tenure_months`, `monthly_charges`, `total_charges`, `support_calls_30d`)
+- variáveis categóricas (ex.: `contract`, `payment_method`, `internet_service`)
+- variável alvo (`churn`, 0/1)
+
+A geração usa um `seed` fixo, então o resultado é **reprodutível** (mesmo arquivo para todos, quando gerado com os mesmos parâmetros).
+
+### Como (re)gerar localmente
+A partir da raiz do repositório:
+
+```bash
+poetry install
+poetry run python scripts/generate_dataset.py
+
+## 7) Próximos passos (imediatos)
 1. Preencher `docs/ml_canvas.md` (bem direto, 1 página)
 2. Criar notebook de EDA e consolidar “achados” (quality checks)
 3. Implementar baselines com CV estratificada + MLflow tracking
