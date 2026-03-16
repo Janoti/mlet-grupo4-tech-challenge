@@ -31,3 +31,6 @@ env/
 *.h5
 *.pkl
 *.sqlite
+# ...mas permite commitar o dataset base
+!data/raw/
+!data/raw/telecom_churn_base.csv

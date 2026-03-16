@@ -10,8 +10,10 @@ Nesta **Fase 1**, o foco é: **entendimento do problema, EDA, baselines com Scik
 Uma operadora está perdendo clientes em ritmo acelerado. O objetivo é criar um modelo preditivo que identifique clientes com maior risco de churn para apoiar ações de retenção.
 
 ### Métricas
-- **Técnicas** (sugestão): AUC-ROC, PR-AUC, F1 (classe churn)
-- **Negócio** (sugestão): churn evitado / custo evitado vs. custo de ação de retenção
+- **AUC-ROC**: mede a capacidade do modelo de separar churners de não-churners em todos os limiares de decisão possíveis. É robusta ao desbalanceamento de classes (churn ~18% da base) e não depende de um threshold fixo — ideal para comparar modelos candidatos.
+- **PR-AUC** (Precision-Recall AUC): complementa a AUC-ROC em cenários desbalanceados. Foca no desempenho sobre a classe positiva (churn), penalizando mais fortemente falsos positivos e falsos negativos dentro do grupo minoritário. Quando o custo de errar sobre quem vai churnar é alto, PR-AUC é mais informativa que AUC-ROC.
+- **F1 (classe churn)**: média harmônica entre Precision e Recall para a classe churn = 1. Útil quando precisamos de um único número que balanceie o custo de perder churners reais (baixo Recall) com o custo de acionar desnecessariamente clientes que não iriam cancelar (baixa Precision).
+- **Negócio**: churn evitado (receita preservada) vs. custo da campanha de retenção — traduz o desempenho técnico em impacto financeiro real.
 
 ---
 
@@ -36,6 +38,20 @@ git clone https://github.com/Janoti/mlet-grupo4-tech-challenge.git
 cd mlet-grupo4-tech-challenge
 poetry install
 ```
+
+### Gerar o dataset
+O script `scripts/generate_dataset.py` gera uma base sintética de 50.000 clientes com label de churn (~18% de taxa), salva em `data/raw/telecom_churn_base.csv`.
+
+```bash
+poetry run python scripts/generate_dataset.py
+```
+
+Parâmetros opcionais:
+```bash
+poetry run python scripts/generate_dataset.py --n-rows 100000 --seed 0 --out-dir data/raw
+```
+
+O label `churn` é calculado com base em fatores de risco alinhados ao ML Canvas (contrato mensal, tempo de casa, queda de uso, inadimplência, reclamações e chamadas ao suporte).
 
 ### Comandos úteis
 Rodar lint:

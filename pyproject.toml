@@ -1,28 +1,52 @@
 [tool.poetry]
-name = "my_project"
+name = "mlet-grupo4-tech-challenge"
 version = "0.1.0"
-description = "A Python project"
+description = "Rede Neural (MLP) para Previsão de Churn em Telecom - Tech Challenge"
+authors = ["Grupo 4"]
+readme = "README.md"
+packages = [{ include = "churn_prediction", from = "src" }]
 
 [tool.poetry.dependencies]
-pandas = "^1.3.0"
-numpy = "^1.21.0"
-scikit-learn = "^1.0.0"
-mlflow = "^1.20.0"
-torch = "^1.10.0"
-fastapi = "^0.68.0"
-matplotlib = "^3.5.0"
-seaborn = "^0.11.2"
-jupyter = "^1.0.0"
+python = ">=3.11,<3.13"
+numpy = "^1.26.0"
+pandas = "^2.2.0"
+scikit-learn = "^1.5.0"
+torch = "^2.3.0"
+mlflow = "^2.14.0"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+pydantic = "^2.8.0"
+pyyaml = "^6.0.0"
+httpx = "^0.27.0"
 
-[tool.poetry.dev-dependencies]
-pytest = "^6.2.5"
-ruff = "^0.0.0"
-black = "^21.12.0"
-pytest-cov = "^2.12.0"
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+pytest-cov = "^5.0.0"
+ruff = "^0.6.0"
+ipykernel = "^6.29.0"
+jupyter = "^1.1.0"
+
+[tool.poetry.scripts]
+lint = "ruff:main"
 
 [tool.ruff]
-line-length = 88
-exclude = ["__init__.py"]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+  ".venv",
+  "mlruns",
+  "data",
+  "models",
+]
 
-[tool.pytest]
-addopts = "--maxfail=5 --disable-warnings"
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
