@@ -40,7 +40,7 @@ poetry install
 ```
 
 ### Gerar o dataset
-O script `scripts/generate_dataset.py` gera uma base sintética de 50.000 clientes com label de churn (~18% de taxa), salva em `data/raw/telecom_churn_base.csv`.
+O script `scripts/generate_dataset.py` gera uma base sintética de 50.000 clientes com label de churn (~25% de taxa), salva em `data/raw/telecom_churn_base.csv`.
 
 ```bash
 poetry run python scripts/generate_dataset.py
@@ -53,11 +53,62 @@ poetry run python scripts/generate_dataset.py --n-rows 100000 --seed 0 --out-dir
 
 O label `churn` é calculado com base em fatores de risco alinhados ao ML Canvas (contrato mensal, tempo de casa, queda de uso, inadimplência, reclamações e chamadas ao suporte).
 
+### Como subir código e abrir PR
+Fluxo recomendado para contribuir no projeto:
+
+1. Atualize sua branch local com a base mais recente:
+```bash
+git checkout main
+git pull origin main
+```
+
+2. Crie uma branch de trabalho:
+```bash
+git checkout -b feat/nome-da-feature
+```
+
+3. Faça suas mudanças e valide localmente:
+```bash
+poetry run ruff check src scripts tests
+poetry run pytest -q
+```
+
+4. Commit das alterações:
+```bash
+git add -A
+git commit -m "feat: descreve a mudanca"
+```
+
+5. Envie para o GitHub:
+```bash
+git push -u origin feat/nome-da-feature
+```
+
+6. Abra o Pull Request (PR) no GitHub:
+- Base: `main`
+- Compare: `feat/nome-da-feature`
+- Preencha descrição com: contexto, o que mudou, como testar e possíveis impactos.
+
+Com GitHub CLI (opcional):
+```bash
+gh pr create --base main --head feat/nome-da-feature --title "feat: titulo" --body "descricao do PR"
+```
+
 ### Comandos úteis
 Rodar lint:
 ```bash
-poetry run ruff check .
+poetry run ruff check src scripts tests
 ```
+
+Auto-corrigir lint (quando possível):
+```bash
+poetry run ruff check src scripts tests --fix
+```
+
+Quando preciso rodar Ruff?
+- Se o PR altera arquivos Python (`.py`), **sim**: rode Ruff antes de subir.
+- Se o PR altera apenas documentação (`README`, `docs/`) ou arquivos de modelo/artefato, **não é obrigatório** rodar Ruff.
+- Mesmo em PR de documentação, rodar Ruff continua sendo recomendado como checagem rápida do ambiente.
 
 Rodar testes:
 ```bash
@@ -201,6 +252,7 @@ A partir da raiz do repositório:
 ```bash
 poetry install
 poetry run python scripts/generate_dataset.py
+```
 
 ## 7) Próximos passos (imediatos)
 1. Preencher `docs/ml_canvas.md` (bem direto, 1 página)
