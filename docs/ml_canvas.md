@@ -29,6 +29,8 @@ A decisao pratica e: quais clientes devem entrar primeiro nas campanhas de reten
 
 Base de referencia: `data/raw/telecom_churn_base_extended.csv`.
 
+Na Fase 1, a base e propositalmente mais proxima de um ambiente real: o dataset sintetico pode conter duplicidades, missing adicional, categorias invalidas e inconsistencias logicas simples. Isso torna o tratamento de dados parte explicita do escopo do baseline.
+
 Principais blocos de variaveis:
 
 - Perfil e contrato:
@@ -53,6 +55,22 @@ Target:
 Variavel auxiliar para analise:
 
 - `churn_probability` (probabilidade sintetica usada na geracao da base)
+
+Regras de preparo adotadas para os baselines da Fase 1:
+
+- remocao de linhas duplicadas e IDs duplicados
+- correcao de valores fora de faixa, convertendo para `NaN` quando necessario
+- ajuste de inconsistencias logicas simples
+- imputacao de numericas com mediana
+- imputacao de categoricas com moda
+- one-hot encoding para variaveis categoricas
+- exclusao de colunas com risco de leakage
+
+Particionamento para avaliacao inicial:
+
+- treino: 80%
+- teste: 20%
+- split estratificado pelo target
 
 ## 6. Saida do modelo
 
@@ -88,6 +106,12 @@ Metricas de modelo:
   - Atualizacao mensal do modelo (ou antes se houver drift).
   - Monitoramento recorrente de drift das principais features.
 
+Requisito minimo de preparo para treino:
+
+- todo baseline deve registrar claramente qual tratamento foi aplicado antes do treino
+- treino e teste devem permanecer separados antes da avaliacao final
+- colunas identificadas como leakage nao entram na matriz de features
+
 ## 9. Riscos e mitigacao
 
 - Desbalanceamento de churn:
@@ -101,8 +125,10 @@ Metricas de modelo:
 
 ## 10. Plano de execucao (curto prazo)
 
-1. Consolidar EDA com foco em qualidade dos dados e sinais de risco.
-2. Treinar baselines em `notebooks/02_baselines.ipynb`.
-3. Comparar modelos por AUC-ROC, PR-AUC e top-K.
-4. Definir cutoff operacional para campanha piloto.
-5. Documentar resultados no model card e preparar versao inicial de inferencia.
+1. Consolidar EDA com foco em qualidade dos dados, target e sinais de risco.
+2. Aplicar tratamento minimo reprodutivel para baseline.
+3. Separar a base em treino/teste com split estratificado 80/20.
+4. Treinar baselines em `notebooks/02_baselines.ipynb`.
+5. Comparar modelos por AUC-ROC, PR-AUC e top-K.
+6. Definir cutoff operacional para campanha piloto.
+7. Documentar resultados no model card e preparar versao inicial de inferencia.

@@ -15,6 +15,13 @@ A base de referencia do projeto e:
 
 - `data/raw/telecom_churn_base_extended.csv`
 
+Nesta etapa do projeto, a base extended nao e perfeitamente limpa de proposito. O gerador atual injeta problemas controlados de qualidade para simular um cenario mais realista de Fase 1, incluindo:
+
+- linhas duplicadas
+- `customer_id` duplicado
+- valores ausentes adicionais
+- valores invalidos e inconsistencias simples
+
 Ela contem dados sinteticos com variaveis de:
 
 - Perfil e contrato:
@@ -48,6 +55,11 @@ Colunas-chave de saida:
 
 - `churn` (target binario)
 - `churn_probability` (probabilidade sintetica de referencia)
+
+Importante:
+
+- `churn` e a variavel alvo usada nos baselines.
+- `churn_probability` existe apenas como artefato da geracao sintetica e deve ser excluida das features por risco de leakage.
 
 ## 3. Estrutura do repositorio
 
@@ -98,6 +110,26 @@ poetry install
 poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
 ```
 
+O script da base estendida agora simula problemas de qualidade de dados. Por padrao, ele injeta:
+
+- duplicidade de linhas
+- duplicidade de identificadores
+- missing adicional em colunas selecionadas
+- valores fora de faixa e categorias invalidas
+
+Exemplo com parametrizacao explicita:
+
+```bash
+poetry run python scripts/generate_synthetic.py \
+	--n-rows 50000 \
+	--seed 42 \
+	--out-dir data/raw \
+	--duplicate-row-rate 0.03 \
+	--duplicate-id-rate 0.02 \
+	--missing-noise-rate 0.01 \
+	--invalid-value-rate 0.01
+```
+
 Arquivo gerado:
 
 - `data/raw/telecom_churn_base_extended.csv`
@@ -115,10 +147,29 @@ Arquivo gerado:
 ## 6. Fluxo recomendado
 
 1. Gerar/validar dataset em `data/raw`.
-2. Executar exploracao no notebook `notebooks/01_eda.ipynb`.
-3. Treinar e comparar baselines no notebook `notebooks/02_baselines.ipynb`.
-4. Registrar experimentos no MLflow (quando habilitado no fluxo).
-5. Consolidar resultados em `docs/model_card.md`.
+2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`.
+3. No proprio EDA da Fase 1, aplicar tratamento minimo para baseline:
+	- remocao de duplicados
+	- correcao de valores invalidos
+	- imputacao simples
+	- one-hot encoding das categoricas
+4. Separar os dados em treino e teste com split estratificado `80/20`.
+5. Treinar e comparar baselines no notebook `notebooks/02_baselines.ipynb`.
+6. Registrar experimentos no MLflow (quando habilitado no fluxo).
+7. Consolidar resultados em `docs/model_card.md`.
+
+Tratamento adotado na Fase 1:
+
+- Numericas: imputacao por mediana.
+- Categoricas: imputacao por moda.
+- Categoricas finais: transformacao com one-hot encoding.
+- Exclusoes por leakage: `customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`.
+
+Split adotado:
+
+- Treino: `80%`
+- Teste: `20%`
+- Estratificacao pelo target `churn`
 
 ## 7. Qualidade de codigo
 
@@ -151,12 +202,13 @@ Abrir em http://127.0.0.1:5000
 ## 9. Documentacao
 
 - Canvas de negocio e modelagem: `docs/ml_canvas.md`
+- Explicacao da EDA e das escolhas metodologicas: `docs/eda_metodologia.md`
 - Card do modelo: `docs/model_card.md`
 
 ## 10. Proximos passos
 
-1. Fechar baseline tabular com validacao estratificada.
-2. Definir corte operacional por top-K para retencao.
-3. Evoluir pipeline em `src/churn_prediction/pipelines/`.
+1. Levar o mesmo tratamento da Fase 1 para pipeline reutilizavel em `src/churn_prediction/pipelines/`.
+2. Fechar baseline tabular com comparacao consistente entre treino/teste.
+3. Definir corte operacional por top-K para retencao.
 4. Criar camada de inferencia (FastAPI) e testes de contrato.
 
