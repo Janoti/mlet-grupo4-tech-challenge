@@ -7,6 +7,7 @@ Substitui prints por logging estruturado (structlog).
 
 Uso:
     python generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
+    python generate_synthetic.py --n-rows 50000 --seed 42 --duplicate-row-rate 0.03 --duplicate-id-rate 0.02
 
 Saída:
     {out_dir}/telecom_churn_base_extended.csv
@@ -15,7 +16,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import argparse
-from datetime import timedelta
 import importlib
 import json
 from typing import Any
@@ -398,10 +398,100 @@ def add_churn_label_extended(df: pd.DataFrame, rng: np.random.Generator) -> pd.D
     return df
 
 
+def inject_quality_issues(
+    df: pd.DataFrame,
+    rng: np.random.Generator,
+    duplicate_row_rate: float = 0.0,
+    duplicate_id_rate: float = 0.0,
+    missing_noise_rate: float = 0.0,
+    invalid_value_rate: float = 0.0,
+) -> pd.DataFrame:
+    """Injeta problemas de qualidade para simular ambiente real (dirty data)."""
+    n_rows_original = len(df)
+
+    def _n_from_rate(rate: float, n: int) -> int:
+        if rate <= 0:
+            return 0
+        return int(np.ceil(rate * n))
+
+    # 1) Duplica linhas inteiras (duplicidade de registro)
+    n_dup_rows = _n_from_rate(duplicate_row_rate, n_rows_original)
+    if n_dup_rows > 0:
+        sampled_idx = rng.choice(df.index.to_numpy(), size=n_dup_rows, replace=True)
+        duplicated_chunk = df.loc[sampled_idx].copy()
+        df = pd.concat([df, duplicated_chunk], ignore_index=True)
+
+    # 2) Duplica customer_id em linhas diferentes
+    n_dup_ids = _n_from_rate(duplicate_id_rate, len(df))
+    if n_dup_ids > 0 and "customer_id" in df.columns:
+        target_idx = rng.choice(df.index.to_numpy(), size=n_dup_ids, replace=False)
+        source_idx = rng.choice(df.index.to_numpy(), size=n_dup_ids, replace=True)
+        df.loc[target_idx, "customer_id"] = df.loc[source_idx, "customer_id"].to_numpy()
+
+    # 3) Missing aleatorio em colunas-chave (exceto id/target)
+    n_missing = _n_from_rate(missing_noise_rate, len(df))
+    missing_cols = [
+        "gender",
+        "region",
+        "internet_service",
+        "payment_method",
+        "monthly_charges",
+        "avg_signal_quality",
+        "nps_score",
+        "csat_score",
+    ]
+    missing_cols = [col for col in missing_cols if col in df.columns]
+    if n_missing > 0 and missing_cols:
+        for col in missing_cols:
+            idx = rng.choice(df.index.to_numpy(), size=n_missing, replace=False)
+            df.loc[idx, col] = np.nan
+
+    # 4) Valores invalidos (fora de faixa, categorias inesperadas, inconsistencias logicas)
+    n_invalid = _n_from_rate(invalid_value_rate, len(df))
+    if n_invalid > 0:
+        idx = rng.choice(df.index.to_numpy(), size=n_invalid, replace=False)
+
+        if "age" in df.columns:
+            df.loc[idx, "age"] = rng.choice([-10, 0, 130], size=n_invalid)
+        if "monthly_charges" in df.columns:
+            df.loc[idx, "monthly_charges"] = rng.uniform(-50, 0, size=n_invalid).round(2)
+        if "avg_signal_quality" in df.columns:
+            df.loc[idx, "avg_signal_quality"] = rng.uniform(5.5, 8.0, size=n_invalid).round(2)
+        if "call_drop_rate" in df.columns:
+            df.loc[idx, "call_drop_rate"] = rng.uniform(1.1, 1.8, size=n_invalid).round(4)
+        if "nps_score" in df.columns:
+            df.loc[idx, "nps_score"] = rng.choice([-2, 11, 15], size=n_invalid)
+
+        if "plan_type" in df.columns:
+            df.loc[idx, "plan_type"] = rng.choice(["desconhecido", "??", ""], size=n_invalid)
+        if "payment_method" in df.columns:
+            df.loc[idx, "payment_method"] = rng.choice(["crypto", "", "na"], size=n_invalid)
+
+        # Inconsistencia: sem fidelidade, mas com meses para fim da fidelidade
+        if "has_loyalty" in df.columns and "months_to_loyalty_end" in df.columns:
+            df.loc[idx, "has_loyalty"] = 0
+            df.loc[idx, "months_to_loyalty_end"] = rng.integers(1, 24, size=n_invalid)
+
+        # Inconsistencia: nao inadimplente, mas com atraso > 0
+        if "default_flag" in df.columns and "days_past_due" in df.columns:
+            df.loc[idx, "default_flag"] = 0
+            df.loc[idx, "days_past_due"] = rng.integers(1, 90, size=n_invalid)
+
+    return df
+
+
 # -------------------------
 # Main
 # -------------------------
-def main(n_rows: int = 50_000, seed: int = 42, out_dir: str | Path = "data/raw") -> None:
+def main(
+    n_rows: int = 50_000,
+    seed: int = 42,
+    out_dir: str | Path = "data/raw",
+    duplicate_row_rate: float = 0.03,
+    duplicate_id_rate: float = 0.02,
+    missing_noise_rate: float = 0.01,
+    invalid_value_rate: float = 0.01,
+) -> None:
     configure_logging()
     rng = np.random.default_rng(seed)
     out_dir = Path(out_dir)
@@ -413,11 +503,23 @@ def main(n_rows: int = 50_000, seed: int = 42, out_dir: str | Path = "data/raw")
     logger.info("features.generated", n_rows=len(df), sample_customer=df["customer_id"].iloc[0])
 
     df = add_churn_label_extended(df, rng)
+    df = inject_quality_issues(
+        df,
+        rng,
+        duplicate_row_rate=duplicate_row_rate,
+        duplicate_id_rate=duplicate_id_rate,
+        missing_noise_rate=missing_noise_rate,
+        invalid_value_rate=invalid_value_rate,
+    )
+
     churn_rate = df["churn"].mean()
     n_promoters = int(df["nps_promoter_flag"].sum())
     n_detractors = int(df["nps_detractor_flag"].sum())
     n_passives = int(((df["nps_category"] == "passive")).sum())
     global_nps = (n_promoters / n_rows - n_detractors / n_rows) * 100.0
+    duplicated_rows = int(df.duplicated().sum())
+    duplicated_ids = int(df["customer_id"].duplicated().sum()) if "customer_id" in df.columns else 0
+    missing_cells = int(df.isna().sum().sum())
 
     out_path = out_dir / "telecom_churn_base_extended.csv"
     df.to_csv(out_path, index=False)
@@ -427,6 +529,9 @@ def main(n_rows: int = 50_000, seed: int = 42, out_dir: str | Path = "data/raw")
         path=str(out_path),
         rows=len(df),
         churn_rate=f"{churn_rate:.3f}",
+        duplicate_rows=duplicated_rows,
+        duplicate_customer_ids=duplicated_ids,
+        missing_cells=missing_cells,
         n_promoters=n_promoters,
         n_passives=n_passives,
         n_detractors=n_detractors,
@@ -439,5 +544,17 @@ if __name__ == "__main__":
     parser.add_argument("--n-rows", type=int, default=50_000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out-dir", type=str, default="data/raw", help="Diretório de saída para features (raw).")
+    parser.add_argument("--duplicate-row-rate", type=float, default=0.03)
+    parser.add_argument("--duplicate-id-rate", type=float, default=0.02)
+    parser.add_argument("--missing-noise-rate", type=float, default=0.01)
+    parser.add_argument("--invalid-value-rate", type=float, default=0.01)
     args = parser.parse_args()
-    main(n_rows=args.n_rows, seed=args.seed, out_dir=args.out_dir)
+    main(
+        n_rows=args.n_rows,
+        seed=args.seed,
+        out_dir=args.out_dir,
+        duplicate_row_rate=args.duplicate_row_rate,
+        duplicate_id_rate=args.duplicate_id_rate,
+        missing_noise_rate=args.missing_noise_rate,
+        invalid_value_rate=args.invalid_value_rate,
+    )
