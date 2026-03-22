@@ -96,6 +96,8 @@ Metricas de modelo:
 - PR-AUC (prioritaria para classe positiva desbalanceada).
 - Recall no top-K (ex.: top 10% e top 20% mais arriscados).
 - Precision no top-K para controlar desperdicio de contato.
+- Fairness por subgrupo com Fairlearn (`gender` e `age_group`).
+- Gaps monitorados: `demographic_parity_difference` e `equalized_odds_difference`.
 
 ## 8. SLOs iniciais
 
@@ -122,13 +124,41 @@ Requisito minimo de preparo para treino:
   - Revisar colunas potencialmente proximas do evento de churn antes do treino.
 - Viés de acao:
   - Garantir que segmentos nao sejam penalizados por proxies inadequados.
+- Viés entre subgrupos sensiveis:
+  - Medir diferencas de taxa de selecao/erro por grupo e aplicar mitigacao quando necessario.
 
 ## 10. Plano de execucao (curto prazo)
 
 1. Consolidar EDA com foco em qualidade dos dados, target e sinais de risco.
 2. Aplicar tratamento minimo reprodutivel para baseline.
 3. Separar a base em treino/teste com split estratificado 80/20.
-4. Treinar baselines em `notebooks/02_baselines.ipynb`.
-5. Comparar modelos por AUC-ROC, PR-AUC e top-K.
-6. Definir cutoff operacional para campanha piloto.
-7. Documentar resultados no model card e preparar versao inicial de inferencia.
+4. Treinar baselines com `DummyClassifier` e `LogisticRegression` em `notebooks/02_baselines.ipynb`.
+5. Registrar parametros, metricas e versao do dataset no MLflow.
+6. Avaliar fairness por subgrupo e gaps (DP/EO).
+7. Testar mitigacao de referencia com `EqualizedOdds` quando houver gap relevante.
+8. Definir cutoff operacional para campanha piloto.
+9. Documentar resultados no model card e preparar versao inicial de inferencia.
+
+## 11. Status atual da Fase 1
+
+Resultados consolidados do baseline em `notebooks/02_baselines.ipynb`:
+
+- Melhor baseline: `LogisticRegression`.
+- Metricas no teste:
+  - Accuracy: `0.8049`
+  - F1: `0.7399`
+  - ROC-AUC: `0.8786`
+  - PR-AUC: `0.8485`
+
+Fairness (baseline logistico, por `gender`):
+
+- `demographic_parity_difference`: `0.0448`
+- `equalized_odds_difference`: `0.0663`
+
+Mitigacao com `ExponentiatedGradient` + `EqualizedOdds` (configuracao rapida):
+
+- Accuracy: `0.8056`
+- F1: `0.7389`
+- `dp_diff_gender`: `0.0561`
+- `eo_diff_gender`: `0.0739`
+- Tempo de execucao aproximado da mitigacao: ~`50s` com amostra estratificada de treino.

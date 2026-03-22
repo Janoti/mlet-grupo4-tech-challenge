@@ -94,6 +94,11 @@ Pre-requisitos:
 - Python 3.11+ (recomendado 3.12)
 - Poetry
 
+Dependencias-chave para a etapa de fairness:
+
+- `scikit-learn >=1.5,<1.6`
+- `fairlearn ^0.11.0`
+
 Instalacao:
 
 ```bash
@@ -154,9 +159,11 @@ Arquivo gerado:
 	- imputacao simples
 	- one-hot encoding das categoricas
 4. Separar os dados em treino e teste com split estratificado `80/20`.
-5. Treinar e comparar baselines no notebook `notebooks/02_baselines.ipynb`.
-6. Registrar experimentos no MLflow (quando habilitado no fluxo).
-7. Consolidar resultados em `docs/model_card.md`.
+5. Treinar baselines com `DummyClassifier` e `LogisticRegression` no notebook `notebooks/02_baselines.ipynb`.
+6. Registrar experimentos no MLflow (parametros, metricas e versao do dataset).
+7. Avaliar fairness por subgrupos com Fairlearn (`gender` e `age_group`).
+8. Aplicar mitigacao opcional com `EqualizedOdds` e comparar trade-offs (a versao atual do notebook usa configuracao otimizada para tempo de execucao).
+9. Consolidar resultados em `docs/model_card.md`.
 
 Tratamento adotado na Fase 1:
 
@@ -170,6 +177,13 @@ Split adotado:
 - Treino: `80%`
 - Teste: `20%`
 - Estratificacao pelo target `churn`
+
+Fairness e rastreabilidade:
+
+- Diagnostico inicial no EDA por subgrupos sensiveis.
+- Avaliacao no baseline com Fairlearn (`demographic_parity_difference`, `equalized_odds_difference`).
+- Mitigacao de referencia com `ExponentiatedGradient` + `EqualizedOdds`.
+- Registro no MLflow com versao do dataset baseada em hash (`dataset_version`).
 
 ## 7. Qualidade de codigo
 
