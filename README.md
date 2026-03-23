@@ -107,6 +107,67 @@ cd mlet-grupo4-tech-challenge
 poetry install
 ```
 
+Opcional com Makefile:
+
+```bash
+make install
+```
+
+## 4.1 Atalhos com Makefile
+
+Comandos para executar notebooks e iniciar MLflow com logs de progresso no terminal:
+
+```bash
+make help
+make run-all
+make notebooks
+make notebooks-eda
+make notebooks-baselines
+make analyze
+make mlflow
+make mlflow-up
+make mlflow-down
+make mlflow-clean
+```
+
+Execucao recomendada (fim a fim):
+
+```bash
+make install
+make run-all
+```
+
+O `make run-all` executa estes steps automaticamente:
+
+1. Limpa `mlruns/`.
+2. Executa `notebooks/01_eda.ipynb`.
+3. Executa `notebooks/02_baselines.ipynb`.
+4. Le os runs em `mlruns/` e imprime analise resumida (ganho do `log_reg` vs `dummy` e trade-off da mitigacao).
+5. Sobe MLflow em background e mostra o link.
+
+Saidas esperadas no terminal:
+
+- `make notebooks`:
+	- `[notebooks-eda] Iniciando execucao de notebooks/01_eda.ipynb...`
+	- `[notebooks-eda] Concluido.`
+	- `[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...`
+	- `[notebooks-baselines] Concluido.`
+	- `[notebooks] Execucao completa finalizada.`
+- `make analyze`:
+	- `[analysis] Resumo automatico da run`
+	- metricas de `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`
+	- deltas de performance e leitura sugerida para apresentacao
+- `make mlflow`:
+	- `[mlflow] Subindo MLflow UI em http://127.0.0.1:5000`
+- `make mlflow-up`:
+	- `[mlflow] PID: ...`
+	- `[mlflow] Link: http://127.0.0.1:5000`
+
+Observacao:
+
+- A execucao dos notebooks usa `nbconvert --execute --inplace`, entao as celulas ficam com outputs salvos no proprio arquivo `.ipynb`.
+- Para reduzir warnings de IOPub no `nbconvert`, o Makefile usa timeout maior e nivel de log configuravel (`IOPUB_TIMEOUT` e `NB_LOG_LEVEL`).
+
 ## 5. Geracao dos dados
 
 ### Base estendida (recomendada)
@@ -211,7 +272,19 @@ poetry run pytest -q
 poetry run mlflow ui --backend-store-uri ./mlruns
 ```
 
+Ou via Makefile:
+
+```bash
+make mlflow
+```
+
 Abrir em http://127.0.0.1:5000
+
+Se a porta 5000 estiver em uso, rode em outra porta:
+
+```bash
+MLFLOW_PORT=5001 make mlflow
+```
 
 ## 9. Documentacao
 
