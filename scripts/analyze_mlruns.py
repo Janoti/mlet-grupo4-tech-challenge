@@ -23,6 +23,13 @@ METRICS = [
     "positive_rate",
     "dp_diff_gender",
     "eo_diff_gender",
+    "tp",
+    "fp",
+    "clientes_abordados",
+    "valor_bruto",
+    "custo_total_acao",
+    "valor_liquido",
+    "valor_por_cliente",
 ]
 
 logger = get_logger("analyze_mlruns")
@@ -128,6 +135,12 @@ def fmt(x: Optional[float], digits: int = 4) -> str:
     return f"{x:.{digits}f}"
 
 
+def fmt_intlike(x: Optional[float]) -> str:
+    if x is None:
+        return "n/a"
+    return str(int(round(x)))
+
+
 def main(log_level: str | None = None) -> int:
     setup_logging(log_level)
     mlruns_root = Path("mlruns")
@@ -199,6 +212,35 @@ def main(log_level: str | None = None) -> int:
         "analysis.delta.mitigated_vs_log_reg",
         delta_accuracy_vs_log_reg=f"{m_acc:.4f}",
         delta_f1_vs_log_reg=f"{m_f1:.4f}",
+    )
+
+    logger.info("[analysis] Metrica de negocio")
+    log_kv(
+        logger,
+        "analysis.business.log_reg",
+        tp=fmt_intlike(logreg.metrics.get("tp")),
+        fp=fmt_intlike(logreg.metrics.get("fp")),
+        clientes_abordados=fmt_intlike(logreg.metrics.get("clientes_abordados")),
+        valor_liquido=fmt(logreg.metrics.get("valor_liquido"), digits=2),
+        valor_por_cliente=fmt(logreg.metrics.get("valor_por_cliente"), digits=4),
+    )
+    log_kv(
+        logger,
+        "analysis.business.mitigated",
+        tp=fmt_intlike(mitig.metrics.get("tp")),
+        fp=fmt_intlike(mitig.metrics.get("fp")),
+        clientes_abordados=fmt_intlike(mitig.metrics.get("clientes_abordados")),
+        valor_liquido=fmt(mitig.metrics.get("valor_liquido"), digits=2),
+        valor_por_cliente=fmt(mitig.metrics.get("valor_por_cliente"), digits=4),
+    )
+
+    d_value = mitig.metrics.get("valor_liquido", 0.0) - logreg.metrics.get("valor_liquido", 0.0)
+    d_value_per_customer = mitig.metrics.get("valor_por_cliente", 0.0) - logreg.metrics.get("valor_por_cliente", 0.0)
+    log_kv(
+        logger,
+        "analysis.delta.business.mitigated_vs_log_reg",
+        delta_valor_liquido_vs_log_reg=f"{d_value:.2f}",
+        delta_valor_por_cliente_vs_log_reg=f"{d_value_per_customer:.4f}",
     )
 
     logger.info("[analysis] Leitura sugerida")

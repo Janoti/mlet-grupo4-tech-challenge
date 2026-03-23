@@ -3,6 +3,14 @@
 
 Projeto de Machine Learning para prever churn em telecom, com foco em EDA, baselines e organizacao de pipeline para evolucao do modelo.
 
+Status atual da Fase 1 neste repositorio:
+
+- EDA executavel e documentada.
+- Baselines (`DummyClassifier` e `LogisticRegression`) com rastreabilidade no MLflow.
+- Avaliacao de fairness com Fairlearn e experimento de mitigacao.
+- Automacao fim a fim com Makefile (`run-all`, `analyze`, `mlflow-up/down`).
+- Metrica de negocio operacionalizada no notebook baseline e consolidada no `make analyze` com leitura de MLflow.
+
 ## 1. Objetivo
 
 - Estimar a probabilidade de churn por cliente.
@@ -79,8 +87,10 @@ mlet-grupo4-tech-challenge/
 │   ├── 01_eda.ipynb
 │   └── 02_baselines.ipynb
 ├── scripts/
+│   ├── analyze_mlruns.py
 │   ├── generate_dataset.py
-│   └── generate_synthetic.py
+│   ├── generate_synthetic.py
+│   └── logging_utils.py
 ├── src/churn_prediction/
 ├── tests/
 ├── pyproject.toml
@@ -157,6 +167,8 @@ Saidas esperadas no terminal:
 	- `[analysis] Resumo automatico da run`
 	- metricas de `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`
 	- deltas de performance e leitura sugerida para apresentacao
+	- resumo da metrica de negocio (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
+	- aviso quando algum run esperado ainda nao existe no `mlruns/`
 - `make mlflow`:
 	- `[mlflow] Subindo MLflow UI em http://127.0.0.1:5000`
 - `make mlflow-up`:
@@ -167,6 +179,12 @@ Observacao:
 
 - A execucao dos notebooks usa `nbconvert --execute --inplace`, entao as celulas ficam com outputs salvos no proprio arquivo `.ipynb`.
 - Para reduzir warnings de IOPub no `nbconvert`, o Makefile usa timeout maior e nivel de log configuravel (`IOPUB_TIMEOUT` e `NB_LOG_LEVEL`).
+
+Padrao de logs dos scripts Python:
+
+- Os scripts usam logging padronizado com formato unico (`timestamp | level | logger | mensagem`).
+- Para controlar verbosidade, use a variavel `LOG_LEVEL` (ex.: `LOG_LEVEL=DEBUG make analyze`).
+- Scripts com logging padronizado nesta branch: `scripts/generate_dataset.py` e `scripts/analyze_mlruns.py`.
 
 ## 5. Geracao dos dados
 
@@ -225,6 +243,7 @@ Arquivo gerado:
 7. Avaliar fairness por subgrupos com Fairlearn (`gender` e `age_group`).
 8. Aplicar mitigacao opcional com `EqualizedOdds` e comparar trade-offs (a versao atual do notebook usa configuracao otimizada para tempo de execucao).
 9. Consolidar resultados em `docs/model_card.md`.
+10. Revisar premissas de negocio (`V_RETIDO`, `C_ACAO`) com stakeholders para calibrar decisao operacional.
 
 Tratamento adotado na Fase 1:
 
@@ -245,6 +264,15 @@ Fairness e rastreabilidade:
 - Avaliacao no baseline com Fairlearn (`demographic_parity_difference`, `equalized_odds_difference`).
 - Mitigacao de referencia com `ExponentiatedGradient` + `EqualizedOdds`.
 - Registro no MLflow com versao do dataset baseada em hash (`dataset_version`).
+
+Metrica de negocio (status atual):
+
+- Ja registrada automaticamente no MLflow para `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`.
+- Formula operacionalizada no notebook:
+	- `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
+	- `valor_por_cliente = valor_liquido / N`
+- Campos consolidados e analisados em `make analyze`:
+	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
 
 ## 7. Qualidade de codigo
 
@@ -290,12 +318,14 @@ MLFLOW_PORT=5001 make mlflow
 
 - Canvas de negocio e modelagem: `docs/ml_canvas.md`
 - Explicacao da EDA e das escolhas metodologicas: `docs/eda_metodologia.md`
+- Documento tecnico consolidado da Fase 1 (EDA + baseline + automacao): `docs/fase1_doc_tecnica.md`
 - Card do modelo: `docs/model_card.md`
 
 ## 10. Proximos passos
 
 1. Levar o mesmo tratamento da Fase 1 para pipeline reutilizavel em `src/churn_prediction/pipelines/`.
 2. Fechar baseline tabular com comparacao consistente entre treino/teste.
-3. Definir corte operacional por top-K para retencao.
-4. Criar camada de inferencia (FastAPI) e testes de contrato.
+3. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
+4. Definir corte operacional por top-K para retencao.
+5. Criar camada de inferencia (FastAPI) e testes de contrato.
 

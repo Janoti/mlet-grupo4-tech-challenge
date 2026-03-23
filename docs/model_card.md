@@ -30,6 +30,11 @@ Estimar o risco de churn por cliente para priorizar campanhas de retencao com me
 
 Observacao: os experimentos sao registrados no experimento `churn-baselines` no MLflow.
 
+Fluxo reprodutivel atual:
+
+- `make run-all`: limpa `mlruns/`, executa EDA + baselines, roda analise automatica e sobe MLflow.
+- `make analyze`: consolida os ultimos runs esperados (`dummy_stratified`, `log_reg`, `log_reg_mitigated_equalized_odds`).
+
 ## 5. Metricas de performance (runs atuais)
 
 | Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Positive Rate |
@@ -72,21 +77,30 @@ Observacao: os experimentos sao registrados no experimento `churn-baselines` no 
 
 Nota: na configuracao rapida atual, a mitigacao nao melhorou os gaps de fairness neste run. Ela foi mantida como referencia tecnica de pipeline e pode ser retreinada com mais iteracoes/amostra para nova comparacao.
 
-## 7. Limitacoes conhecidas
+## 7. Metricas de negocio (status)
+
+- A metrica de negocio ja e logada automaticamente no MLflow nesta branch.
+- Formula operacionalizada no notebook baseline:
+	- `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
+	- `valor_por_cliente = valor_liquido / N`
+- Metricas atualmente registradas no MLflow:
+	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
+
+## 8. Limitacoes conhecidas
 
 - Base sintetica (nao representa integralmente o comportamento de producao).
 - Fairness foi avaliada em atributos disponiveis (`gender`, `age`) e pode nao cobrir todos os fatores sensiveis relevantes de negocio.
 - A mitigacao pode reduzir gap de fairness com perda de performance; a decisao final depende do trade-off acordado com negocio.
 
-## 8. Decisao de uso (a preencher)
+## 9. Decisao de uso (a preencher)
 
 - Modelo candidato a piloto: `LogisticRegression` baseline
 - Criterio principal de selecao: melhor equilibrio entre ROC-AUC/PR-AUC e simplicidade operacional
 - Criterio de fairness minimo aceito: definir com negocio e compliance antes de producao
 - Data da decisao: TBD
 
-## 9. Proximos passos
+## 10. Proximos passos
 
-1. Preencher tabela de performance com resultados efetivos dos runs.
+1. Calibrar `V_RETIDO` e `C_ACAO` com negocio para decisao operacional realista.
 2. Consolidar threshold operacional de campanha.
 3. Definir politica de monitoramento de performance e fairness em producao.
