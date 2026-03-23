@@ -89,6 +89,13 @@ Metricas de negocio:
 - Reducao da taxa de churn apos campanha.
 - Receita preservada (clientes retidos x ticket).
 - ROI de retencao.
+- Valor liquido esperado por politica de contato (`TP * V_RETIDO - (TP + FP) * C_ACAO`).
+
+Status de implementacao das metricas de negocio no codigo atual:
+
+- KPIs de negocio estao descritos e alinhados no plano.
+- Calculo automatico de valor liquido ja foi incorporado ao notebook baseline e consolidado no `scripts/analyze_mlruns.py`.
+- O fluxo atual registra no MLflow: `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`.
 
 Metricas de modelo:
 
@@ -138,6 +145,7 @@ Requisito minimo de preparo para treino:
 7. Testar mitigacao de referencia com `EqualizedOdds` quando houver gap relevante.
 8. Definir cutoff operacional para campanha piloto.
 9. Documentar resultados no model card e preparar versao inicial de inferencia.
+10. Calibrar `V_RETIDO` e `C_ACAO` com negocio para tomada de decisao operacional.
 
 ## 11. Status atual da Fase 1
 
@@ -162,3 +170,9 @@ Mitigacao com `ExponentiatedGradient` + `EqualizedOdds` (configuracao rapida):
 - `dp_diff_gender`: `0.0561`
 - `eo_diff_gender`: `0.0739`
 - Tempo de execucao aproximado da mitigacao: ~`50s` com amostra estratificada de treino.
+
+Automacao e rastreabilidade ja implementadas no codigo:
+
+- Execucao fim a fim por Make (`make run-all`) com limpeza de runs, execucao dos notebooks, analise automatica e subida do MLflow.
+- Analise automatica de runs locais via `scripts/analyze_mlruns.py`.
+- Logging padronizado em scripts principais para facilitar troubleshooting e auditoria.
