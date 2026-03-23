@@ -16,6 +16,8 @@ dist/
 # Virtual environments
 .env
 .venv/
+.venv-2/
+.venv-2
 ENV/
 env/
 
@@ -33,4 +35,7 @@ env/
 *.sqlite
 # ...mas permite commitar o dataset base
 !data/raw/
+
+# Experiment tracking artifacts
+mlruns/
 !data/raw/telecom_churn_base.csv
