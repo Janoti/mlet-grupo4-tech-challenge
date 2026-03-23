@@ -6,6 +6,11 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from logging_utils import get_logger, log_kv, setup_logging
+
+
+logger = get_logger("generate_dataset")
+
 
 def synth_features(n_rows: int, rng: np.random.Generator) -> pd.DataFrame:
     """Gera features do cliente conforme a Seção 5 (perfil, produtos, uso, financeiro, atendimento)."""
@@ -115,10 +120,18 @@ def add_churn_label(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     return df
 
 
-def main(n_rows: int = 50_000, seed: int = 42, out_dir: str | Path = "data/raw") -> None:
+def main(
+    n_rows: int = 50_000,
+    seed: int = 42,
+    out_dir: str | Path = "data/raw",
+    log_level: str | None = None,
+) -> None:
+    setup_logging(log_level)
     rng = np.random.default_rng(seed)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    log_kv(logger, "generate.start", n_rows=n_rows, seed=seed, out_dir=out_dir)
 
     df = synth_features(n_rows, rng)
     df = add_churn_label(df, rng)
@@ -126,7 +139,13 @@ def main(n_rows: int = 50_000, seed: int = 42, out_dir: str | Path = "data/raw")
     churn_rate = df["churn"].mean()
     out_path = out_dir / "telecom_churn_base.csv"
     df.to_csv(out_path, index=False)
-    print(f"WROTE: {out_path} rows={len(df)} churn_rate={churn_rate:.1%}")
+    log_kv(
+        logger,
+        "generate.wrote",
+        path=out_path,
+        rows=len(df),
+        churn_rate=f"{churn_rate:.1%}",
+    )
 
 
 if __name__ == "__main__":
@@ -134,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-rows", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out-dir", type=str, default="data/raw", help="Diretório de saída para features (raw).")
+    parser.add_argument("--log-level", type=str, default=None, help="Nível de log (DEBUG, INFO, WARNING, ERROR).")
     args = parser.parse_args()
-    main(n_rows=args.n_rows, seed=args.seed, out_dir=args.out_dir)
+    main(n_rows=args.n_rows, seed=args.seed, out_dir=args.out_dir, log_level=args.log_level)
 

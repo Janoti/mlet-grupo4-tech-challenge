@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
+
+from logging_utils import get_logger, log_kv, setup_logging
 
 
 RUN_NAMES = [
@@ -21,6 +24,8 @@ METRICS = [
     "dp_diff_gender",
     "eo_diff_gender",
 ]
+
+logger = get_logger("analyze_mlruns")
 
 
 @dataclass
@@ -123,40 +128,43 @@ def fmt(x: Optional[float], digits: int = 4) -> str:
     return f"{x:.{digits}f}"
 
 
-def main() -> int:
+def main(log_level: str | None = None) -> int:
+    setup_logging(log_level)
     mlruns_root = Path("mlruns")
     if not mlruns_root.exists():
-        print("[analysis] mlruns/ nao encontrado.")
+        logger.error("[analysis] mlruns/ nao encontrado.")
         return 1
 
     runs = collect_runs(mlruns_root)
     missing = [n for n in RUN_NAMES if n not in runs]
     if missing:
-        print("[analysis] Runs esperados ausentes:", ", ".join(missing))
-        print("[analysis] Rode: make notebooks")
+        log_kv(logger, "analysis.missing_runs", missing=",".join(missing))
+        logger.info("[analysis] Rode: make notebooks")
         return 1
 
     dummy = runs["dummy_stratified"]
     logreg = runs["log_reg"]
     mitig = runs["log_reg_mitigated_equalized_odds"]
 
-    print("[analysis] Resumo automatico da run")
-    print(f"[analysis] dataset_version: {logreg.params.get('dataset_version', 'n/a')}")
+    logger.info("[analysis] Resumo automatico da run")
+    log_kv(logger, "analysis.dataset", dataset_version=logreg.params.get("dataset_version", "n/a"))
 
-    print("\n[analysis] Performance")
-    print(
-        "  dummy_stratified: "
-        f"accuracy={fmt(dummy.metrics.get('accuracy'))}, "
-        f"f1={fmt(dummy.metrics.get('f1'))}, "
-        f"roc_auc={fmt(dummy.metrics.get('roc_auc'))}, "
-        f"pr_auc={fmt(dummy.metrics.get('pr_auc'))}"
+    logger.info("[analysis] Performance")
+    log_kv(
+        logger,
+        "analysis.performance.dummy",
+        accuracy=fmt(dummy.metrics.get("accuracy")),
+        f1=fmt(dummy.metrics.get("f1")),
+        roc_auc=fmt(dummy.metrics.get("roc_auc")),
+        pr_auc=fmt(dummy.metrics.get("pr_auc")),
     )
-    print(
-        "  log_reg:          "
-        f"accuracy={fmt(logreg.metrics.get('accuracy'))}, "
-        f"f1={fmt(logreg.metrics.get('f1'))}, "
-        f"roc_auc={fmt(logreg.metrics.get('roc_auc'))}, "
-        f"pr_auc={fmt(logreg.metrics.get('pr_auc'))}"
+    log_kv(
+        logger,
+        "analysis.performance.log_reg",
+        accuracy=fmt(logreg.metrics.get("accuracy")),
+        f1=fmt(logreg.metrics.get("f1")),
+        roc_auc=fmt(logreg.metrics.get("roc_auc")),
+        pr_auc=fmt(logreg.metrics.get("pr_auc")),
     )
 
     d_acc = logreg.metrics.get("accuracy", 0.0) - dummy.metrics.get("accuracy", 0.0)
@@ -164,32 +172,44 @@ def main() -> int:
     d_roc = logreg.metrics.get("roc_auc", 0.0) - dummy.metrics.get("roc_auc", 0.0)
     d_pr = logreg.metrics.get("pr_auc", 0.0) - dummy.metrics.get("pr_auc", 0.0)
 
-    print("\n[analysis] Ganho log_reg vs dummy")
-    print(f"  delta_accuracy={d_acc:.4f}")
-    print(f"  delta_f1={d_f1:.4f}")
-    print(f"  delta_roc_auc={d_roc:.4f}")
-    print(f"  delta_pr_auc={d_pr:.4f}")
+    logger.info("[analysis] Ganho log_reg vs dummy")
+    log_kv(
+        logger,
+        "analysis.delta.log_reg_vs_dummy",
+        delta_accuracy=f"{d_acc:.4f}",
+        delta_f1=f"{d_f1:.4f}",
+        delta_roc_auc=f"{d_roc:.4f}",
+        delta_pr_auc=f"{d_pr:.4f}",
+    )
 
-    print("\n[analysis] Mitigacao (trade-off)")
-    print(
-        "  log_reg_mitigated_equalized_odds: "
-        f"accuracy={fmt(mitig.metrics.get('accuracy'))}, "
-        f"f1={fmt(mitig.metrics.get('f1'))}, "
-        f"dp_diff_gender={fmt(mitig.metrics.get('dp_diff_gender'))}, "
-        f"eo_diff_gender={fmt(mitig.metrics.get('eo_diff_gender'))}"
+    logger.info("[analysis] Mitigacao (trade-off)")
+    log_kv(
+        logger,
+        "analysis.performance.mitigated",
+        accuracy=fmt(mitig.metrics.get("accuracy")),
+        f1=fmt(mitig.metrics.get("f1")),
+        dp_diff_gender=fmt(mitig.metrics.get("dp_diff_gender")),
+        eo_diff_gender=fmt(mitig.metrics.get("eo_diff_gender")),
     )
 
     m_acc = mitig.metrics.get("accuracy", 0.0) - logreg.metrics.get("accuracy", 0.0)
     m_f1 = mitig.metrics.get("f1", 0.0) - logreg.metrics.get("f1", 0.0)
-    print(f"  delta_accuracy_vs_log_reg={m_acc:.4f}")
-    print(f"  delta_f1_vs_log_reg={m_f1:.4f}")
+    log_kv(
+        logger,
+        "analysis.delta.mitigated_vs_log_reg",
+        delta_accuracy_vs_log_reg=f"{m_acc:.4f}",
+        delta_f1_vs_log_reg=f"{m_f1:.4f}",
+    )
 
-    print("\n[analysis] Leitura sugerida")
-    print("  1) log_reg supera dummy com folga em metricas de classificacao.")
-    print("  2) mitigacao reduz disparidade (DP/EO) com pequena perda de performance.")
-    print("  3) decisao final deve equilibrar desempenho e equidade.")
+    logger.info("[analysis] Leitura sugerida")
+    logger.info("1) log_reg supera dummy com folga em metricas de classificacao.")
+    logger.info("2) mitigacao reduz disparidade (DP/EO) com pequena perda de performance.")
+    logger.info("3) decisao final deve equilibrar desempenho e equidade.")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description="Analisa os runs mais recentes no MLflow local.")
+    parser.add_argument("--log-level", type=str, default=None, help="Nível de log (DEBUG, INFO, WARNING, ERROR).")
+    args = parser.parse_args()
+    raise SystemExit(main(log_level=args.log_level))
