@@ -103,7 +103,7 @@ Metricas de modelo:
 - PR-AUC (prioritaria para classe positiva desbalanceada).
 - Recall no top-K (ex.: top 10% e top 20% mais arriscados).
 - Precision no top-K para controlar desperdicio de contato.
-- Fairness por subgrupo com Fairlearn (`gender` e `age_group`).
+- Fairness por subgrupo com Fairlearn (`gender`, `age_group`, `region` e `plan_type`).
 - Gaps monitorados: `demographic_parity_difference` e `equalized_odds_difference`.
 
 ## 8. SLOs iniciais
@@ -153,23 +153,23 @@ Resultados consolidados do baseline em `notebooks/02_baselines.ipynb`:
 
 - Melhor baseline: `LogisticRegression`.
 - Metricas no teste:
-  - Accuracy: `0.8049`
-  - F1: `0.7399`
-  - ROC-AUC: `0.8786`
-  - PR-AUC: `0.8485`
+  - Accuracy: `0.8069`
+  - F1: `0.7425`
+  - ROC-AUC: `0.8783`
+  - PR-AUC: `0.8480`
 
 Fairness (baseline logistico, por `gender`):
 
-- `demographic_parity_difference`: `0.0448`
-- `equalized_odds_difference`: `0.0663`
+- `demographic_parity_difference`: `0.0552`
+- `equalized_odds_difference`: `0.0741`
 
 Mitigacao com `ExponentiatedGradient` + `EqualizedOdds` (configuracao rapida):
 
-- Accuracy: `0.8056`
-- F1: `0.7389`
-- `dp_diff_gender`: `0.0561`
-- `eo_diff_gender`: `0.0739`
-- Tempo de execucao aproximado da mitigacao: ~`50s` com amostra estratificada de treino.
+- Accuracy: `0.8007`
+- F1: `0.7352`
+- `dp_diff_gender`: `0.0518`
+- `eo_diff_gender`: `0.0847`
+- Tempo de execucao aproximado da mitigacao: ~`24s` com amostra estratificada de treino.
 
 Automacao e rastreabilidade ja implementadas no codigo:
 
