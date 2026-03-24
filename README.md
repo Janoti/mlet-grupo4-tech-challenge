@@ -17,6 +17,21 @@ Status atual da Fase 1 neste repositorio:
 - Priorizar campanhas de retencao com base em risco.
 - Medir impacto com metricas tecnicas (AUC-ROC, PR-AUC, top-K) e de negocio (churn evitado, ROI).
 
+### Metricas de sucesso
+
+- AUC-ROC >= 0.80 (referencia de comparacao entre modelos)
+- PR-AUC como metrica prioritaria para classe desbalanceada
+- Recall >= 0.70 no top 20% dos clientes de maior risco
+- Precision no top-K para controle de desperdicio de contato em campanhas
+
+### Segmentacao de risco (saida do modelo)
+
+| Faixa de score | Segmento | Acao recomendada |
+|----------------|----------|-----------------|
+| >= 0.70 | Alto risco | Ofertas de retencao prioritarias |
+| 0.40 – 0.70 | Medio risco | Monitoramento leve + ofertas |
+| < 0.40 | Baixo risco | Sem acao imediata |
+
 ## 2. Dataset principal
 
 A base de referencia do projeto e:
@@ -231,7 +246,13 @@ Arquivo gerado:
 ## 6. Fluxo recomendado
 
 1. Gerar/validar dataset em `data/raw`.
-2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`.
+2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`. O EDA inclui analise de correlacao entre features numericas: foram identificados **14 pares com |r| > 0.7**, sendo os mais criticos:
+	- `price_increase_last_3m` ↔ `invoice_shock_flag` (r = 0.99)
+	- `avg_bill_last_6m` ↔ `monthly_charges` (r = 0.97)
+	- `data_gb_monthly` ↔ `avg_usage_last_3m` (r = 0.97)
+	- `late_payments_6m` ↔ `default_flag` (r = 0.92)
+
+	Pares com |r| > 0.9 representam informacao redundante e devem ser consolidados, especialmente para modelos sensiveis a multicolinearidade como a regressao logistica.
 3. No proprio EDA da Fase 1, aplicar tratamento minimo para baseline:
 	- remocao de duplicados
 	- correcao de valores invalidos
@@ -239,18 +260,20 @@ Arquivo gerado:
 	- one-hot encoding das categoricas
 4. Separar os dados em treino e teste com split estratificado `80/20`.
 5. Treinar baselines com `DummyClassifier` e `LogisticRegression` no notebook `notebooks/02_baselines.ipynb`.
-6. Registrar experimentos no MLflow (parametros, metricas e versao do dataset).
-7. Avaliar fairness por subgrupos com Fairlearn (`gender` e `age_group`).
-8. Aplicar mitigacao opcional com `EqualizedOdds` e comparar trade-offs (a versao atual do notebook usa configuracao otimizada para tempo de execucao).
-9. Consolidar resultados em `docs/model_card.md`.
-10. Revisar premissas de negocio (`V_RETIDO`, `C_ACAO`) com stakeholders para calibrar decisao operacional.
+6. Tunar hiperparametros com `GridSearchCV` (5-fold estratificado) variando `C` em [0.001, 0.01, 0.1, 1, 10, 100] e comparar penalidades L1, L2 e ElasticNet. Melhor configuracao encontrada: `C=0.1` com L2 (diferenca entre penalidades < 0.0002 em ROC-AUC).
+7. Otimizar threshold de classificacao por metrica de negocio (valor liquido da campanha de retencao), varrendo thresholds de 0.10 a 0.90.
+8. Registrar experimentos no MLflow (parametros, metricas e versao do dataset).
+9. Avaliar fairness por subgrupos com Fairlearn (`gender`, `age_group`, `region` e `plan_type`).
+10. Aplicar mitigacao opcional com `EqualizedOdds` e comparar trade-offs (a versao atual do notebook usa configuracao otimizada para tempo de execucao).
+11. Consolidar resultados em `docs/model_card.md`.
+12. Revisar premissas de negocio (`V_RETIDO`, `C_ACAO`) com stakeholders para calibrar decisao operacional.
 
 Tratamento adotado na Fase 1:
 
 - Numericas: imputacao por mediana.
 - Categoricas: imputacao por moda.
 - Categoricas finais: transformacao com one-hot encoding.
-- Exclusoes por leakage: `customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`.
+- Exclusoes por leakage: `customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`, `contract_renewal_date`, `loyalty_end_date`.
 
 Split adotado:
 
