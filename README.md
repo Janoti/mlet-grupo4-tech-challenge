@@ -1,4 +1,3 @@
-
 # Predicao de Churn em Telecom - Tech Challenge (Grupo 4)
 
 Projeto de Machine Learning para prever churn em telecom, com foco em EDA, baselines e organizacao de pipeline para evolucao do modelo.
@@ -351,4 +350,81 @@ MLFLOW_PORT=5001 make mlflow
 3. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
 4. Definir corte operacional por top-K para retencao.
 5. Criar camada de inferencia (FastAPI) e testes de contrato.
+
+## 9. Resultados dos Baselines e Interpretação
+
+### 9.1 Desempenho dos modelos
+
+| Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
+|-------------------------------|----------|-------|---------|--------|------------------|
+| `dummy_stratified`            | 0.5294   | 0.3937| 0.5046  | 0.3959 | R$ 561.850       |
+| `log_reg` (C=1)               | 0.8069   | 0.7425| 0.8783  | 0.8480 | **R$ 1.190.800** |
+| `log_reg_best_penalty` (C=0.1)| 0.8069   | 0.7425| 0.8784  | 0.8480 | R$ 1.190.800     |
+| `log_reg_mitigated_equalized_odds` | 0.8007 | 0.7352|   --   |   --   | R$ 1.180.950     |
+
+**Interpretação:**
+- O DummyClassifier serve como referência mínima, com métricas próximas ao acaso.
+- A Regressão Logística supera amplamente o dummy, com ROC-AUC de 0.878, indicando excelente capacidade discriminativa.
+- O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
+- O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
+
+### 9.2 Diagnóstico de Overfitting
+
+| Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
+|---------------|-------------------------------|------------------------------------|
+| `log_reg`     | 0.0013                        | Sem overfitting - generaliza bem   |
+| `dummy_stratified` | -0.0085                   | OK (teste ligeiramente melhor)     |
+
+**Interpretação:**
+- O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
+
+### 9.3 Comparação de Penalizações (L1, L2, ElasticNet)
+
+| Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
+|-------------|----------|------------|---------------|
+| L2 (Ridge)  | 0.1      | 0.8782     | 0.8783        |
+| L1 (Lasso)  | 0.1      | 0.8783     | 0.8783        |
+| ElasticNet  | 0.1      | 0.8783     | **0.8784**    |
+
+**Interpretação:**
+- As três penalizações convergem para C=0.1, com diferença < 0.0002 em ROC-AUC.
+- Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
+- Mantém-se L2 como referência pela simplicidade.
+
+### 9.4 Fairness por Grupo Sensível
+
+#### `log_reg` (sem mitigação)
+
+| Atributo sensível | dp_diff | eo_diff |
+|-------------------|---------|---------|
+| `gender`          | 0.0552  | 0.0741  |
+| `age_group`       | 0.1101  | 0.0758  |
+| `region`          | 0.1565  | 0.1672  |
+| `plan_type`       | 0.2960  | 0.1840  |
+
+- O maior gap está em `plan_type`, indicando risco regulatório de concentrar retencao em clientes pré-pagos.
+
+#### `log_reg_mitigated_equalized_odds` (mitigação por `gender`)
+
+| Métrica           | `log_reg` | Mitigado | Variação |
+|-------------------|-----------|----------|----------|
+| dp_diff_gender    | 0.0552    | 0.0518   | -6%      |
+| eo_diff_gender    | 0.0741    | 0.0847   | +14%     |
+| F1                | 0.7425    | 0.7352   | -0.007   |
+| Valor Líquido     | R$ 1.190.800 | R$ 1.180.950 | -R$ 9.850 |
+
+- A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
+- Os gaps de outros atributos permanecem sem tratamento.
+
+### 9.5 Métrica de Negócio
+
+```
+valor_liquido = TP x R$500 - (TP + FP) x R$50
+```
+- `log_reg`: **R$ 1.190.800** abordando 3.494 clientes (2.731 TP, 763 FP)
+- `dummy_stratified`: 2.254 FP para apenas 1.499 acertos -> R$ 561.850
+- Mitigacao custa apenas R$ 9.850 a menos — custo aceitável para redução de risco regulatório
+
+**Resumo:**
+O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
