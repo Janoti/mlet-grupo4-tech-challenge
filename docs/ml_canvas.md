@@ -1,4 +1,3 @@
-
 # ML Canvas - Churn em Telecom (Base Estendida)
 
 ## 1. Problema de negócio
@@ -45,24 +44,7 @@ Target: `churn` (0/1)
 
 Variável auxiliar: `churn_probability` (probabilidade sintética)
 
-## 6. Pipeline e decisões técnicas
-
-- EDA detalhada e documentada
-- Baselines: DummyClassifier, LogisticRegression, fairness com Fairlearn
-- Pipeline MLP em PyTorch (robustez, automação, rastreabilidade)
-- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
-- Automação via Makefile e rastreabilidade via MLflow
-
-## 7. Métricas de avaliação
-
-- Técnicas: Accuracy, F1, ROC-AUC, PR-AUC, Positive Rate
-- Negócio: clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
-
-## 8. Próximos passos
-
-- Evoluir arquitetura do modelo (feature engineering, tuning, explainability)
-- Monitoramento contínuo e atualização do pipeline
-
+Tratamento aplicado:
 
 - remocao de linhas duplicadas e IDs duplicados
 - correcao de valores fora de faixa, convertendo para `NaN` quando necessario
@@ -78,7 +60,15 @@ Particionamento para avaliacao inicial:
 - teste: 20%
 - split estratificado pelo target
 
-## 6. Saida do modelo
+## 6. Pipeline e decisões técnicas
+
+- EDA detalhada e documentada
+- Baselines: DummyClassifier, LogisticRegression, fairness com Fairlearn
+- Pipeline MLP em PyTorch (robustez, automação, rastreabilidade)
+- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
+- Automação via Makefile e rastreabilidade via MLflow
+
+## 7. Saída do modelo
 
 - Score de churn por cliente.
 - Segmentacao recomendada:
@@ -88,31 +78,30 @@ Particionamento para avaliacao inicial:
 
 Os thresholds devem ser recalibrados com base em custo de campanha e capacidade operacional.
 
-## 7. Metricas de sucesso
+## 8. Métricas de avaliação
 
-Metricas de negocio:
+Métricas técnicas:
 
-- Reducao da taxa de churn apos campanha.
-- Receita preservada (clientes retidos x ticket).
-- ROI de retencao.
-- Valor liquido esperado por politica de contato (`TP * V_RETIDO - (TP + FP) * C_ACAO`).
+- AUC-ROC (comparacao geral entre modelos)
+- PR-AUC (prioritaria para classe positiva desbalanceada)
+- Recall no top-K (ex.: top 10% e top 20% mais arriscados)
+- Precision no top-K para controlar desperdicio de contato
+- Fairness por subgrupo com Fairlearn (`gender`, `age_group`, `region` e `plan_type`)
+- Gaps monitorados: `demographic_parity_difference` e `equalized_odds_difference`
+
+Métricas de negócio:
+
+- Reducao da taxa de churn apos campanha
+- Receita preservada (clientes retidos x ticket)
+- ROI de retencao
+- Valor liquido esperado por politica de contato (`TP * V_RETIDO - (TP + FP) * C_ACAO`)
 
 Status de implementacao das metricas de negocio no codigo atual:
 
-- KPIs de negocio estao descritos e alinhados no plano.
-- Calculo automatico de valor liquido ja foi incorporado ao notebook baseline e consolidado no `scripts/analyze_mlruns.py`.
+- Calculo automatico de valor liquido ja incorporado ao notebook baseline e consolidado no `scripts/analyze_mlruns.py`.
 - O fluxo atual registra no MLflow: `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`.
 
-Metricas de modelo:
-
-- AUC-ROC (comparacao geral entre modelos).
-- PR-AUC (prioritaria para classe positiva desbalanceada).
-- Recall no top-K (ex.: top 10% e top 20% mais arriscados).
-- Precision no top-K para controlar desperdicio de contato.
-- Fairness por subgrupo com Fairlearn (`gender`, `age_group`, `region` e `plan_type`).
-- Gaps monitorados: `demographic_parity_difference` e `equalized_odds_difference`.
-
-## 8. SLOs iniciais
+## 9. SLOs iniciais
 
 - Qualidade:
   - AUC-ROC >= 0.80 em validacao.
@@ -127,7 +116,7 @@ Requisito minimo de preparo para treino:
 - treino e teste devem permanecer separados antes da avaliacao final
 - colunas identificadas como leakage nao entram na matriz de features
 
-## 9. Riscos e mitigacao
+## 10. Riscos e mitigacao
 
 - Desbalanceamento de churn:
   - Mitigar com metrica adequada (PR-AUC/Recall top-K) e validacao estratificada.
@@ -140,7 +129,7 @@ Requisito minimo de preparo para treino:
 - Viés entre subgrupos sensiveis:
   - Medir diferencas de taxa de selecao/erro por grupo e aplicar mitigacao quando necessario.
 
-## 10. Plano de execucao (curto prazo)
+## 11. Plano de execucao (curto prazo)
 
 1. Consolidar EDA com foco em qualidade dos dados, target e sinais de risco.
 2. Aplicar tratamento minimo reprodutivel para baseline.
@@ -153,7 +142,7 @@ Requisito minimo de preparo para treino:
 9. Documentar resultados no model card e preparar versao inicial de inferencia.
 10. Calibrar `V_RETIDO` e `C_ACAO` com negocio para tomada de decisao operacional.
 
-## 11. Status atual da Fase 1
+## 12. Status atual da Fase 1
 
 Resultados consolidados do baseline em `notebooks/02_baselines.ipynb`:
 
@@ -182,3 +171,8 @@ Automacao e rastreabilidade ja implementadas no codigo:
 - Execucao fim a fim por Make (`make run-all`) com limpeza de runs, execucao dos notebooks, analise automatica e subida do MLflow.
 - Analise automatica de runs locais via `scripts/analyze_mlruns.py`.
 - Logging padronizado em scripts principais para facilitar troubleshooting e auditoria.
+
+## 13. Próximos passos
+
+- Evoluir arquitetura do modelo (feature engineering, tuning, explainability)
+- Monitoramento contínuo e atualização do pipeline

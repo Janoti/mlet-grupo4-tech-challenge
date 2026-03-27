@@ -1,4 +1,3 @@
-
 # Predição de Churn em Telecom - Tech Challenge (Grupo 4)
 
 Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, automação, rastreabilidade e foco em métricas de negócio.
@@ -30,48 +29,15 @@ Base: `data/raw/telecom_churn_base_extended.csv`
 
 O dataset é sintético, com problemas controlados de qualidade (duplicidades, missing, inconsistências) para simular um cenário realista. Inclui variáveis de perfil, uso, financeiro, atendimento e satisfação.
 
-## 4. Automação e rastreabilidade
+Colunas-chave de saída:
 
-- **Makefile**: targets para rodar EDA, baselines, MLP, análise e MLflow
-- **MLflow**: rastreia experimentos, parâmetros, métricas técnicas e de negócio
-
-## 5. Métricas de avaliação
-
-- Técnicas: Accuracy, F1, ROC-AUC, PR-AUC, Positive Rate
-- Negócio: clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
-
-## 6. Como rodar
-
-1. Instale dependências (recomenda-se Poetry)
-2. Execute `make run-all` para pipeline completo
-3. Use `make analyze` para consolidar métricas dos experimentos
-4. Suba o MLflow com `make mlflow-up` para explorar resultados
-
-## 7. Estrutura de diretórios
-
-- `data/`: dados brutos, processados e intermediários
-- `notebooks/`: EDA, baselines, MLP
-- `scripts/`: utilitários e geração de dados
-- `models/`: artefatos e registro de modelos
-- `mlruns/`: rastreamento MLflow
-- `docs/`: documentação técnica e de negócio
-
-## 8. Contato
-
-Grupo 4 - Tech Challenge FIAP
-
-
-Colunas-chave de saida:
-
-- `churn` (target binario)
-- `churn_probability` (probabilidade sintetica de referencia)
+- `churn` (target binário)
 
 Importante:
 
-- `churn` e a variavel alvo usada nos baselines.
-- `churn_probability` existe apenas como artefato da geracao sintetica e deve ser excluida das features por risco de leakage.
+- `churn` é a variável alvo usada nos baselines.
 
-## 3. Estrutura do repositorio
+## 4. Estrutura do repositório
 
 ```text
 mlet-grupo4-tech-challenge/
@@ -81,12 +47,6 @@ mlet-grupo4-tech-challenge/
 │   └── processed/
 ├── docs/
 │   ├── ml_canvas.md
-│   └── model_card.md
-├── models/
-│   ├── artifacts/
-│   └── model_registry/
-├── notebooks/
-│   ├── 01_eda.ipynb
 │   └── 02_baselines.ipynb
 ├── scripts/
 │   ├── analyze_mlruns.py
@@ -99,7 +59,12 @@ mlet-grupo4-tech-challenge/
 └── README.md
 ```
 
-## 4. Ambiente e instalacao
+## 5. Automação e rastreabilidade
+
+- **Makefile**: targets para rodar EDA, baselines, MLP, análise e MLflow
+- **MLflow**: rastreia experimentos, parâmetros, métricas técnicas e de negócio
+
+## 6. Ambiente e instalacao
 
 Pre-requisitos:
 
@@ -125,7 +90,7 @@ Opcional com Makefile:
 make install
 ```
 
-## 4.1 Atalhos com Makefile
+## 6.1 Atalhos com Makefile
 
 Comandos para executar notebooks e iniciar MLflow com logs de progresso no terminal:
 
@@ -188,7 +153,7 @@ Padrao de logs dos scripts Python:
 - Para controlar verbosidade, use a variavel `LOG_LEVEL` (ex.: `LOG_LEVEL=DEBUG make analyze`).
 - Scripts com logging padronizado nesta branch: `scripts/generate_dataset.py` e `scripts/analyze_mlruns.py`.
 
-## 5. Geracao dos dados
+## 7. Geracao dos dados
 
 ### Base estendida (recomendada)
 
@@ -230,7 +195,7 @@ Arquivo gerado:
 
 - `data/raw/telecom_churn_base.csv`
 
-## 6. Fluxo recomendado
+## 8. Fluxo recomendado
 
 1. Gerar/validar dataset em `data/raw`.
 2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`. O EDA inclui analise de correlacao entre features numericas: foram identificados **14 pares com |r| > 0.7**, sendo os mais criticos:
@@ -284,7 +249,7 @@ Metrica de negocio (status atual):
 - Campos consolidados e analisados em `make analyze`:
 	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
 
-## 7. Qualidade de codigo
+## 9. Qualidade de codigo
 
 Lint:
 
@@ -304,7 +269,7 @@ Testes:
 poetry run pytest -q
 ```
 
-## 8. MLflow (opcional local)
+## 10. MLflow (opcional local)
 
 ```bash
 poetry run mlflow ui --backend-store-uri ./mlruns
@@ -324,14 +289,14 @@ Se a porta 5000 estiver em uso, rode em outra porta:
 MLFLOW_PORT=5001 make mlflow
 ```
 
-## 9. Documentacao
+## 11. Documentacao
 
 - Canvas de negocio e modelagem: `docs/ml_canvas.md`
 - Explicacao da EDA e das escolhas metodologicas: `docs/eda_metodologia.md`
 - Documento tecnico consolidado da Fase 1 (EDA + baseline + automacao): `docs/fase1_doc_tecnica.md`
 - Card do modelo: `docs/model_card.md`
 
-## 10. Proximos passos
+## 12. Proximos passos
 
 1. Levar o mesmo tratamento da Fase 1 para pipeline reutilizavel em `src/churn_prediction/pipelines/`.
 2. Fechar baseline tabular com comparacao consistente entre treino/teste.
@@ -339,9 +304,9 @@ MLFLOW_PORT=5001 make mlflow
 4. Definir corte operacional por top-K para retencao.
 5. Criar camada de inferencia (FastAPI) e testes de contrato.
 
-## 9. Resultados dos Baselines e Interpretação
+## 13. Resultados dos Baselines e Interpretação
 
-### 9.1 Desempenho dos modelos
+### 13.1 Desempenho dos modelos
 
 | Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
 |-------------------------------|----------|-------|---------|--------|------------------|
@@ -356,7 +321,7 @@ MLFLOW_PORT=5001 make mlflow
 - O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
 - O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
 
-### 9.2 Diagnóstico de Overfitting
+### 13.2 Diagnóstico de Overfitting
 
 | Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
 |---------------|-------------------------------|------------------------------------|
@@ -366,7 +331,7 @@ MLFLOW_PORT=5001 make mlflow
 **Interpretação:**
 - O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
 
-### 9.3 Comparação de Penalizações (L1, L2, ElasticNet)
+### 13.3 Comparação de Penalizações (L1, L2, ElasticNet)
 
 | Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
 |-------------|----------|------------|---------------|
@@ -379,7 +344,7 @@ MLFLOW_PORT=5001 make mlflow
 - Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
 - Mantém-se L2 como referência pela simplicidade.
 
-### 9.4 Fairness por Grupo Sensível
+### 13.4 Fairness por Grupo Sensível
 
 #### `log_reg` (sem mitigação)
 
@@ -404,11 +369,12 @@ MLFLOW_PORT=5001 make mlflow
 - A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
 - Os gaps de outros atributos permanecem sem tratamento.
 
-### 9.5 Métrica de Negócio
+### 13.5 Métrica de Negócio
 
 ```
 valor_liquido = TP x R$500 - (TP + FP) x R$50
 ```
+
 - `log_reg`: **R$ 1.190.800** abordando 3.494 clientes (2.731 TP, 763 FP)
 - `dummy_stratified`: 2.254 FP para apenas 1.499 acertos -> R$ 561.850
 - Mitigacao custa apenas R$ 9.850 a menos — custo aceitável para redução de risco regulatório
@@ -416,3 +382,6 @@ valor_liquido = TP x R$500 - (TP + FP) x R$50
 **Resumo:**
 O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
+## 14. Contato
+
+Grupo 4 - Tech Challenge FIAP
