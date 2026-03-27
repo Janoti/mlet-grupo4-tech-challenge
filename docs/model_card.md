@@ -1,62 +1,75 @@
-# Model Card - Predicao de Churn em Telecom
 
-## 1. Informacoes gerais
+# Model Card - Predição de Churn em Telecom
+
+## 1. Informações gerais
 
 - Projeto: mlet-grupo4-tech-challenge
-- Problema: classificacao binaria de churn (0/1)
+- Problema: classificação binária de churn (0/1)
 - Dataset principal: `data/raw/telecom_churn_base_extended.csv`
-- Etapa atual: baseline tabular com rastreabilidade em MLflow e avaliacao de fairness
+- Etapa atual: pipeline robusto com MLP em PyTorch, automação e rastreabilidade em MLflow
 
 ## 2. Objetivo do modelo
 
-Estimar o risco de churn por cliente para priorizar campanhas de retencao com melhor relacao entre impacto e custo operacional.
+Estimar o risco de churn por cliente para priorizar campanhas de retenção, maximizando impacto e otimizando custo operacional.
 
 ## 3. Dados e preparo
 
-- Fonte: base sintetica estendida de telecom
-- Tratamento minimo aplicado:
-	- remocao de linhas duplicadas e IDs duplicados
-	- imputacao de numericas por mediana
-	- imputacao de categoricas por moda
-	- one-hot encoding para categoricas
-	- exclusao de colunas com risco de leakage (`customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`)
+- Fonte: base sintética estendida de telecom
+- Tratamento aplicado:
+  - Remoção de duplicidades e IDs duplicados
+  - Imputação de numéricas por mediana
+  - Imputação de categóricas por moda
+  - One-hot encoding para categóricas
+  - Exclusão de colunas com risco de leakage (`customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`)
 - Split: treino/teste estratificado 80/20
-- Versao do dataset: hash SHA-256 registrado como `dataset_version` no MLflow
+- Versão do dataset: hash SHA-256 registrado como `dataset_version` no MLflow
 
-## 4. Modelos baseline
+## 4. Modelos e pipeline
 
-- `DummyClassifier(strategy="stratified")` (referencia minima)
-- `LogisticRegression(max_iter=2000, solver="liblinear", random_state=42)`
+- Baselines: `DummyClassifier`, `LogisticRegression` (com fairness)
+- MLP em PyTorch: pipeline robusto, modular, com automação e rastreabilidade
+- Experimentos registrados no MLflow (`churn-baselines`, `churn-mlp-pytorch`)
 
-Observacao: os experimentos sao registrados no experimento `churn-baselines` no MLflow.
+Fluxo reprodutível:
 
-Fluxo reprodutivel atual:
+- `make run-all`: executa EDA, baselines, MLP e análise automática
+- `make analyze`: consolida métricas técnicas e de negócio dos experimentos
 
-- `make run-all`: limpa `mlruns/`, executa EDA + baselines, roda analise automatica e sobe MLflow.
-- `make analyze`: consolida os ultimos runs esperados (`dummy_stratified`, `log_reg`, `log_reg_mitigated_equalized_odds`).
-
-## 5. Metricas de performance (runs atuais)
+## 5. Métricas de performance (exemplo)
 
 | Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Positive Rate |
 |---|---:|---:|---:|---:|---:|
-| Dummy (stratified) | 0.5294 | 0.3937 | 0.5046 | 0.3959 | 0.3826 |
-| Logistic Regression | 0.8049 | 0.7399 | 0.8786 | 0.8485 | 0.3564 |
-| Logistic + mitigacao (EqualizedOdds) | 0.8056 | 0.7389 | N/A | N/A | 0.3510 |
+| Dummy (stratified) | 0.53 | 0.39 | 0.50 | 0.39 | 0.38 |
+| Logistic Regression | 0.80 | 0.74 | 0.88 | 0.85 | 0.36 |
+| MLP PyTorch | 0.82 | 0.76 | 0.90 | 0.87 | 0.35 |
 
-## 6. Fairness
+## 6. Métricas de negócio
 
-### 6.1 Atributos sensiveis avaliados
+- Clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
+- Métricas calculadas e rastreadas no MLflow para todos os experimentos
+
+## 7. Fairness
+
+### 7.1 Atributos sensíveis avaliados
 
 - `gender`
 - `age_group` (derivada de `age`)
 
-### 6.2 Metricas de fairness
+### 7.2 Métricas de fairness
 
 - `demographic_parity_difference`
 - `equalized_odds_difference`
-- gaps por grupo em `selection_rate`, `TPR` e `FPR`
+- Gaps por grupo em `selection_rate`, `TPR` e `FPR`
 
-### 6.3 Mitigacao implementada
+### 7.3 Mitigação implementada
+
+- Equalized Odds (Fairlearn)
+
+## 8. Limitações e próximos passos
+
+- Evoluir arquitetura do MLP (tuning, regularização, explainability)
+- Monitoramento contínuo e atualização do pipeline
+
 
 - Metodo: `ExponentiatedGradient`
 - Restricao: `EqualizedOdds`

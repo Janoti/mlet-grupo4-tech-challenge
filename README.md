@@ -1,63 +1,66 @@
 
-# Predicao de Churn em Telecom - Tech Challenge (Grupo 4)
 
-Projeto de Machine Learning para prever churn em telecom, com foco em EDA, baselines e organizacao de pipeline para evolucao do modelo.
+# Predição de Churn em Telecom - Tech Challenge (Grupo 4)
 
-Status atual da Fase 1 neste repositorio:
+Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, automação, rastreabilidade e foco em métricas de negócio.
 
-- EDA executavel e documentada.
-- Baselines (`DummyClassifier` e `LogisticRegression`) com rastreabilidade no MLflow.
-- Avaliacao de fairness com Fairlearn e experimento de mitigacao.
-- Automacao fim a fim com Makefile (`run-all`, `analyze`, `mlflow-up/down`).
-- Metrica de negocio operacionalizada no notebook baseline e consolidada no `make analyze` com leitura de MLflow.
+## Status atual
+
+- EDA executável e documentada
+- Baselines (`DummyClassifier`, `LogisticRegression`) e fairness com Fairlearn
+- Pipeline MLP em PyTorch com rastreabilidade no MLflow
+- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
+- Automação fim a fim via Makefile (`run-all`, `analyze`, `mlflow-up/down`)
+- Documentação técnica e de negócio atualizada
 
 ## 1. Objetivo
 
-- Estimar a probabilidade de churn por cliente.
-- Priorizar campanhas de retencao com base em risco.
-- Medir impacto com metricas tecnicas (AUC-ROC, PR-AUC, top-K) e de negocio (churn evitado, ROI).
+- Estimar a probabilidade de churn por cliente
+- Priorizar campanhas de retenção com base em risco e valor
+- Medir impacto com métricas técnicas (AUC-ROC, PR-AUC, F1) e de negócio (churn evitado, valor líquido, ROI)
 
-## 2. Dataset principal
+## 2. Pipeline e notebooks
 
-A base de referencia do projeto e:
+- `01_eda.ipynb`: Exploração e análise dos dados
+- `02_baselines.ipynb`: Baselines, fairness, métricas de negócio, MLflow
+- `03_mlp_pytorch.ipynb`: Pipeline robusto com MLP em PyTorch, automação, rastreabilidade
 
-- `data/raw/telecom_churn_base_extended.csv`
+## 3. Dataset principal
 
-Nesta etapa do projeto, a base extended nao e perfeitamente limpa de proposito. O gerador atual injeta problemas controlados de qualidade para simular um cenario mais realista de Fase 1, incluindo:
+Base: `data/raw/telecom_churn_base_extended.csv`
 
-- linhas duplicadas
-- `customer_id` duplicado
-- valores ausentes adicionais
-- valores invalidos e inconsistencias simples
+O dataset é sintético, com problemas controlados de qualidade (duplicidades, missing, inconsistências) para simular um cenário realista. Inclui variáveis de perfil, uso, financeiro, atendimento e satisfação.
 
-Ela contem dados sinteticos com variaveis de:
+## 4. Automação e rastreabilidade
 
-- Perfil e contrato:
-	- `plan_type`: tipo de plano do cliente (pre, controle, pos, empresarial).
-	- `months_to_contract_end`: meses restantes para termino do contrato atual.
-	- `has_loyalty`: indica se o cliente esta em periodo de fidelizacao (0/1).
-- Qualidade de servico:
-	- `network_outages_30d`: quantidade de quedas de rede nos ultimos 30 dias.
-	- `avg_signal_quality`: qualidade media de sinal percebida pelo cliente.
-	- `call_drop_rate`: taxa de chamadas interrompidas.
-- Uso e engajamento:
-	- `minutes_monthly`: minutos de voz consumidos no mes.
-	- `data_gb_monthly`: consumo mensal de dados moveis em GB.
-	- `usage_delta_pct`: variacao percentual recente no uso (tendencia de queda/subida).
-	- `app_login_30d`: numero de logins no app nos ultimos 30 dias.
-- Financeiro:
-	- `monthly_charges`: valor cobrado mensalmente do cliente.
-	- `invoice_shock_flag`: flag de aumento relevante de fatura (0/1).
-	- `late_payments_6m`: quantidade de pagamentos em atraso nos ultimos 6 meses.
-	- `default_flag`: indica historico de inadimplencia (0/1).
-- Atendimento:
-	- `support_calls_30d`: numero de contatos com suporte nos ultimos 30 dias.
-	- `complaints_30d`: indicador de reclamacao recente (0/1).
-	- `resolution_time_avg`: tempo medio de resolucao dos atendimentos.
-- Satisfacao:
-	- `nps_score`: nota NPS individual do cliente (0 a 10).
-	- `nps_category`: classificacao NPS (promoter, passive, detractor).
-	- `csat_score`: nota de satisfacao (CSAT) do cliente.
+- **Makefile**: targets para rodar EDA, baselines, MLP, análise e MLflow
+- **MLflow**: rastreia experimentos, parâmetros, métricas técnicas e de negócio
+
+## 5. Métricas de avaliação
+
+- Técnicas: Accuracy, F1, ROC-AUC, PR-AUC, Positive Rate
+- Negócio: clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
+
+## 6. Como rodar
+
+1. Instale dependências (recomenda-se Poetry)
+2. Execute `make run-all` para pipeline completo
+3. Use `make analyze` para consolidar métricas dos experimentos
+4. Suba o MLflow com `make mlflow-up` para explorar resultados
+
+## 7. Estrutura de diretórios
+
+- `data/`: dados brutos, processados e intermediários
+- `notebooks/`: EDA, baselines, MLP
+- `scripts/`: utilitários e geração de dados
+- `models/`: artefatos e registro de modelos
+- `mlruns/`: rastreamento MLflow
+- `docs/`: documentação técnica e de negócio
+
+## 8. Contato
+
+Grupo 4 - Tech Challenge FIAP
+
 
 Colunas-chave de saida:
 
