@@ -1,62 +1,68 @@
+
 # ML Canvas - Churn em Telecom (Base Estendida)
 
-## 1. Problema de negocio
+## 1. Problema de negócio
 
-A operadora quer reduzir cancelamentos usando priorizacao de clientes com maior risco de churn.
-A decisao pratica e: quais clientes devem entrar primeiro nas campanhas de retencao para maximizar impacto e controlar custo.
+A operadora busca reduzir cancelamentos (churn) priorizando clientes de maior risco e valor para campanhas de retenção, maximizando impacto e controlando custos.
 
-## 2. Objetivo de negocio
+## 2. Objetivo de negócio
 
-- Reduzir churn na carteira ativa.
-- Preservar receita recorrente com foco em clientes de maior valor.
-- Melhorar eficiencia das campanhas, evitando contato em massa sem priorizacao.
+- Reduzir churn na base ativa
+- Preservar receita recorrente, priorizando clientes de maior valor
+- Melhorar eficiência das campanhas, evitando contato em massa
 
 ## 3. Stakeholders
 
-- Marketing/CRM: define regras de campanha e incentivo.
-- Retencao/Atendimento: executa abordagem dos clientes priorizados.
-- BI/Analytics: acompanha resultados operacionais e financeiros.
-- Data Science/MLOps: treina, monitora e atualiza o modelo.
-- Lideranca: avalia impacto em churn, receita e ROI.
+- Marketing/CRM: define regras e incentivos
+- Retenção/Atendimento: executa abordagem dos clientes priorizados
+- BI/Analytics: acompanha resultados operacionais e financeiros
+- Data Science/MLOps: treina, monitora e atualiza o modelo
+- Liderança: avalia impacto em churn, receita e ROI
 
-## 4. Usuario final e decisao suportada
+## 4. Usuário final e decisão suportada
 
-- Usuario principal: time de CRM/retencao.
-- Entrega esperada: score de churn por cliente (0 a 1) + faixas de risco.
-- Decisao suportada: quem contatar, quando contatar e qual oferta priorizar.
+- Usuário principal: time de CRM/retencao
+- Entrega: score de churn por cliente (0 a 1) + faixas de risco
+- Decisão: quem contatar, quando e qual oferta priorizar
 
 ## 5. Dados de entrada (base atual)
 
-Base de referencia: `data/raw/telecom_churn_base_extended.csv`.
+Base: `data/raw/telecom_churn_base_extended.csv`
 
-Na Fase 1, a base e propositalmente mais proxima de um ambiente real: o dataset sintetico pode conter duplicidades, missing adicional, categorias invalidas e inconsistencias logicas simples. Isso torna o tratamento de dados parte explicita do escopo do baseline.
+O dataset é sintético, com duplicidades, missing, categorias inválidas e inconsistências para simular ambiente real. O tratamento de dados é parte explícita do pipeline.
 
-Principais blocos de variaveis:
+Principais blocos de variáveis:
 
-- Perfil e contrato:
-  - `age`, `gender`, `region`, `plan_type`, `plan_price`, `is_promotional_plan`, `months_to_contract_end`, `has_loyalty`.
-- Qualidade de servico:
-  - `network_outages_30d`, `avg_signal_quality`, `call_drop_rate`, `avg_internet_speed`, `service_failures_30d`.
-- Uso e engajamento:
-  - `minutes_monthly`, `data_gb_monthly`, `usage_delta_pct`, `days_since_last_usage`, `app_login_30d`, `self_service_usage_30d`.
-- Financeiro:
-  - `monthly_charges`, `avg_bill_last_6m`, `invoice_shock_flag`, `late_payments_6m`, `default_flag`, `days_past_due`.
-- Atendimento e experiencia:
-  - `support_calls_30d`, `support_calls_90d`, `complaints_30d`, `resolution_time_avg`, `first_call_resolution_flag`.
-- Concorrencia e retencao:
-  - `portability_request_flag`, `competitor_offer_contact_flag`, `retention_offer_made`, `retention_offer_accepted`.
-- Satisfacao:
-  - `nps_score`, `nps_category`, `nps_promoter_flag`, `nps_detractor_flag`, `csat_score`.
+- Perfil e contrato: `age`, `gender`, `region`, `plan_type`, `plan_price`, `is_promotional_plan`, `months_to_contract_end`, `has_loyalty`
+- Qualidade de serviço: `network_outages_30d`, `avg_signal_quality`, `call_drop_rate`, `avg_internet_speed`, `service_failures_30d`
+- Uso e engajamento: `minutes_monthly`, `data_gb_monthly`, `usage_delta_pct`, `days_since_last_usage`, `app_login_30d`, `self_service_usage_30d`
+- Financeiro: `monthly_charges`, `avg_bill_last_6m`, `invoice_shock_flag`, `late_payments_6m`, `default_flag`, `days_past_due`
+- Atendimento: `support_calls_30d`, `support_calls_90d`, `complaints_30d`, `resolution_time_avg`, `first_call_resolution_flag`
+- Concorrência: `portability_request_flag`, `competitor_offer_contact_flag`, `retention_offer_made`, `retention_offer_accepted`
+- Satisfação: `nps_score`, `nps_category`, `nps_promoter_flag`, `nps_detractor_flag`, `csat_score`
 
-Target:
+Target: `churn` (0/1)
 
-- `churn` (0/1)
+Variável auxiliar: `churn_probability` (probabilidade sintética)
 
-Variavel auxiliar para analise:
+## 6. Pipeline e decisões técnicas
 
-- `churn_probability` (probabilidade sintetica usada na geracao da base)
+- EDA detalhada e documentada
+- Baselines: DummyClassifier, LogisticRegression, fairness com Fairlearn
+- Pipeline MLP em PyTorch (robustez, automação, rastreabilidade)
+- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
+- Automação via Makefile e rastreabilidade via MLflow
 
-Regras de preparo adotadas para os baselines da Fase 1:
+## 7. Métricas de avaliação
+
+- Técnicas: Accuracy, F1, ROC-AUC, PR-AUC, Positive Rate
+- Negócio: clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
+
+## 8. Próximos passos
+
+- Evoluir arquitetura do modelo (feature engineering, tuning, explainability)
+- Monitoramento contínuo e atualização do pipeline
+
 
 - remocao de linhas duplicadas e IDs duplicados
 - correcao de valores fora de faixa, convertendo para `NaN` quando necessario
