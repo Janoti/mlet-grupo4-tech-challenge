@@ -68,25 +68,46 @@ mlflow:
 
 mlflow-up:
 	@mkdir -p .tmp
-	@if [ -f $(MLFLOW_PID) ] && kill -0 $$(cat $(MLFLOW_PID)) 2>/dev/null; then \
-		echo "[mlflow] Ja em execucao no PID $$(cat $(MLFLOW_PID))"; \
+	@if lsof -ti tcp:$(MLFLOW_PORT) -s tcp:listen >/dev/null 2>&1; then \
+		echo "[mlflow] Ja em execucao na porta $(MLFLOW_PORT) (PID: $$(lsof -ti tcp:$(MLFLOW_PORT) -s tcp:listen | head -1))"; \
 		echo "[mlflow] Link: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"; \
 	else \
+		rm -rf venv-teste 2>/dev/null; \
 		echo "[mlflow] Subindo em background..."; \
-		nohup $(POETRY) run mlflow ui --backend-store-uri ./mlruns --host $(MLFLOW_HOST) --port $(MLFLOW_PORT) > $(MLFLOW_LOG) 2>&1 & echo $$! > $(MLFLOW_PID); \
-		sleep 1; \
-		echo "[mlflow] PID: $$(cat $(MLFLOW_PID))"; \
-		echo "[mlflow] Link: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"; \
-		echo "[mlflow] Log: $(MLFLOW_LOG)"; \
+		nohup $(POETRY) run mlflow ui --backend-store-uri ./mlruns --host $(MLFLOW_HOST) --port $(MLFLOW_PORT) > $(MLFLOW_LOG) 2>&1 & \
+		GUNICORN_PID=""; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+			sleep 1; \
+			GUNICORN_PID=$$(lsof -ti tcp:$(MLFLOW_PORT) -s tcp:listen | head -1); \
+			if [ -n "$$GUNICORN_PID" ]; then break; fi; \
+			echo "[mlflow] Aguardando inicializacao... ($${i}s)"; \
+		done; \
+		if [ -n "$$GUNICORN_PID" ]; then \
+			echo "$$GUNICORN_PID" > $(MLFLOW_PID); \
+			echo "[mlflow] PID: $$GUNICORN_PID"; \
+			echo "[mlflow] Link: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"; \
+			echo "[mlflow] Log: $(MLFLOW_LOG)"; \
+		else \
+			echo "[mlflow] ERRO: MLflow nao iniciou apos 20s. Verifique $(MLFLOW_LOG)"; \
+		fi; \
 	fi
 
 mlflow-down:
-	@if [ -f $(MLFLOW_PID) ] && kill -0 $$(cat $(MLFLOW_PID)) 2>/dev/null; then \
-		kill $$(cat $(MLFLOW_PID)); \
+	@PIDS=$$(lsof -ti tcp:$(MLFLOW_PORT) -s tcp:listen 2>/dev/null); \
+	if [ -n "$$PIDS" ]; then \
+		echo "[mlflow] Encerrando processos na porta $(MLFLOW_PORT): $$PIDS"; \
+		echo "$$PIDS" | xargs kill; \
 		rm -f $(MLFLOW_PID); \
+		sleep 1; \
+		REMAINING=$$(lsof -ti tcp:$(MLFLOW_PORT) -s tcp:listen 2>/dev/null); \
+		if [ -n "$$REMAINING" ]; then \
+			echo "[mlflow] Forcando encerramento: $$REMAINING"; \
+			echo "$$REMAINING" | xargs kill -9; \
+		fi; \
 		echo "[mlflow] Processo encerrado."; \
 	else \
-		echo "[mlflow] Nenhum processo em background para encerrar."; \
+		rm -f $(MLFLOW_PID); \
+		echo "[mlflow] Nenhum processo na porta $(MLFLOW_PORT) para encerrar."; \
 	fi
 
 mlflow-clean:

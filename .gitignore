@@ -18,6 +18,7 @@ dist/
 .venv/
 .venv-2/
 .venv-2
+venv-teste/
 ENV/
 env/
 
@@ -39,3 +40,5 @@ env/
 # Experiment tracking artifacts
 mlruns/
 !data/raw/telecom_churn_base.csv
+
+.claude/
