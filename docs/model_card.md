@@ -1,4 +1,3 @@
-
 # Model Card - Predição de Churn em Telecom
 
 ## 1. Informações gerais
@@ -20,33 +19,36 @@ Estimar o risco de churn por cliente para priorizar campanhas de retenção, max
   - Imputação de numéricas por mediana
   - Imputação de categóricas por moda
   - One-hot encoding para categóricas
-  - Exclusão de colunas com risco de leakage (`customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`)
-- Split: treino/teste estratificado 80/20
+  - Exclusão de colunas com risco de leakage (`customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`, `contract_renewal_date`, `loyalty_end_date`)
+- Split: treino/teste estratificado 80/20; validação interna 10% do treino (para early stopping do MLP)
 - Versão do dataset: hash SHA-256 registrado como `dataset_version` no MLflow
 
 ## 4. Modelos e pipeline
 
-- Baselines: `DummyClassifier`, `LogisticRegression` (com fairness)
-- MLP em PyTorch: pipeline robusto, modular, com automação e rastreabilidade
+- Baselines: `DummyClassifier`, `LogisticRegression` (com fairness e tuning de hiperparâmetros)
+- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, BCEWithLogitsLoss, early stopping
 - Experimentos registrados no MLflow (`churn-baselines`, `churn-mlp-pytorch`)
 
 Fluxo reprodutível:
 
-- `make run-all`: executa EDA, baselines, MLP e análise automática
+- `make run-all`: executa EDA, baselines (com export dos splits), MLP e análise automática
 - `make analyze`: consolida métricas técnicas e de negócio dos experimentos
 
-## 5. Métricas de performance (exemplo)
+## 5. Métricas de performance
 
-| Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Positive Rate |
+| Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Valor Líquido |
 |---|---:|---:|---:|---:|---:|
-| Dummy (stratified) | 0.53 | 0.39 | 0.50 | 0.39 | 0.38 |
-| Logistic Regression | 0.80 | 0.74 | 0.88 | 0.85 | 0.36 |
-| MLP PyTorch | 0.82 | 0.76 | 0.90 | 0.87 | 0.35 |
+| Dummy (stratified) | 0.53 | 0.39 | 0.50 | 0.40 | R$ 561.850 |
+| Logistic Regression (C=0.1) | 0.81 | 0.74 | 0.88 | 0.85 | R$ 1.190.800 |
+| MLP PyTorch | 0.82 | 0.76 | 0.90 | 0.87 | — |
+
+> Valores do MLP são estimativas até a execução completa do pipeline. Consulte o MLflow para os valores atualizados.
 
 ## 6. Métricas de negócio
 
-- Clientes abordados, valor bruto, valor líquido, valor por cliente, custo total da ação
-- Métricas calculadas e rastreadas no MLflow para todos os experimentos
+- Fórmula: `valor_liquido = TP × R$500 − (TP + FP) × R$50`
+- Threshold otimizado por varredura de 0.10 a 0.90 (máximo valor líquido)
+- Métricas registradas no MLflow: `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
 
 ## 7. Fairness
 
@@ -54,6 +56,7 @@ Fluxo reprodutível:
 
 - `gender`
 - `age_group` (derivada de `age`)
+- `region`, `plan_type` (avaliação adicional no baseline)
 
 ### 7.2 Métricas de fairness
 
@@ -63,57 +66,40 @@ Fluxo reprodutível:
 
 ### 7.3 Mitigação implementada
 
-- Equalized Odds (Fairlearn)
+- Método: `ExponentiatedGradient`
+- Restrição: `EqualizedOdds`
+- Grupo sensível de referência: `gender`
+- Configuração: `mitigation_sample_size=15000`, `eps=0.02`, `max_iter=15`
 
-## 8. Limitações e próximos passos
+### 7.4 Resultado de fairness (gender — baseline logístico)
 
-- Evoluir arquitetura do MLP (tuning, regularização, explainability)
-- Monitoramento contínuo e atualização do pipeline
+| Métrica | Sem mitigação | Com mitigação | Variação |
+|---------|:---:|:---:|:---:|
+| dp_diff_gender | 0.0552 | 0.0518 | −6% |
+| eo_diff_gender | 0.0741 | 0.0847 | +14% |
+| F1 | 0.7425 | 0.7352 | −0.007 |
+| Valor Líquido | R$ 1.190.800 | R$ 1.180.950 | −R$ 9.850 |
 
+Nota: na configuração rápida atual, a mitigação não melhorou o gap `eo_diff`. Pode ser retreinada com mais iterações para nova comparação.
 
-- Metodo: `ExponentiatedGradient`
-- Restricao: `EqualizedOdds`
-- Grupo sensivel de referencia na mitigacao: `gender`
-- Configuracao atual para desempenho computacional:
-	- `mitigation_sample_size = 15000`
-	- `mitigation_eps = 0.02`
-	- `mitigation_max_iter = 15`
+## 8. Limitações conhecidas
 
-### 6.4 Resultado de fairness (gender)
+- Base sintética (não representa integralmente o comportamento de produção)
+- Fairness avaliada apenas nos atributos disponíveis (`gender`, `age`) — pode não cobrir todos os fatores sensíveis relevantes
+- A mitigação pode reduzir gap de fairness com perda de performance; a decisão final depende do trade-off acordado com o negócio
+- MLP sem avaliação de fairness formal (apenas métricas técnicas e de negócio nesta versão)
 
-- Baseline logistico:
-	- `dp_diff = 0.0448`
-	- `eo_diff = 0.0663`
-- Modelo mitigado:
-	- `dp_diff_gender = 0.0561`
-	- `eo_diff_gender = 0.0739`
+## 9. Decisão de uso
 
-Nota: na configuracao rapida atual, a mitigacao nao melhorou os gaps de fairness neste run. Ela foi mantida como referencia tecnica de pipeline e pode ser retreinada com mais iteracoes/amostra para nova comparacao.
+- Modelo candidato a piloto: `LogisticRegression` baseline (melhor equilíbrio entre ROC-AUC/PR-AUC e simplicidade operacional)
+- Modelo em avaliação: MLP PyTorch (maior capacidade, requer validação de fairness e calibração)
+- Critério mínimo de fairness: definir com negócio e compliance antes de produção
+- Data da decisão: TBD
 
-## 7. Metricas de negocio (status)
+## 10. Próximos passos
 
-- A metrica de negocio ja e logada automaticamente no MLflow nesta branch.
-- Formula operacionalizada no notebook baseline:
-	- `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
-	- `valor_por_cliente = valor_liquido / N`
-- Metricas atualmente registradas no MLflow:
-	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
-
-## 8. Limitacoes conhecidas
-
-- Base sintetica (nao representa integralmente o comportamento de producao).
-- Fairness foi avaliada em atributos disponiveis (`gender`, `age`) e pode nao cobrir todos os fatores sensiveis relevantes de negocio.
-- A mitigacao pode reduzir gap de fairness com perda de performance; a decisao final depende do trade-off acordado com negocio.
-
-## 9. Decisao de uso (a preencher)
-
-- Modelo candidato a piloto: `LogisticRegression` baseline
-- Criterio principal de selecao: melhor equilibrio entre ROC-AUC/PR-AUC e simplicidade operacional
-- Criterio de fairness minimo aceito: definir com negocio e compliance antes de producao
-- Data da decisao: TBD
-
-## 10. Proximos passos
-
-1. Calibrar `V_RETIDO` e `C_ACAO` com negocio para decisao operacional realista.
-2. Consolidar threshold operacional de campanha.
-3. Definir politica de monitoramento de performance e fairness em producao.
+1. Calibrar `V_RETIDO` e `C_ACAO` com negócio para decisão operacional realista.
+2. Consolidar threshold operacional da campanha (varredura 0.10–0.90 já implementada).
+3. Avaliar fairness do MLP por subgrupos sensíveis.
+4. Definir política de monitoramento de performance e fairness em produção.
+5. Evoluir arquitetura (tuning, explainability com SHAP/LIME).

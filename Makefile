@@ -11,21 +11,23 @@ MLFLOW_PID ?= .tmp/mlflow.pid
 
 EDA_NOTEBOOK := notebooks/01_eda.ipynb
 BASELINE_NOTEBOOK := notebooks/02_baselines.ipynb
+MLP_NOTEBOOK      := notebooks/03_mlp_pytorch.ipynb
 
-.PHONY: help install run-all notebooks notebooks-eda notebooks-baselines analyze mlflow mlflow-up mlflow-down mlflow-clean
+.PHONY: help install run-all notebooks notebooks-eda notebooks-baselines notebooks-mlp analyze mlflow mlflow-up mlflow-down mlflow-clean
 
 help:
 	@echo "Targets disponiveis:"
-	@echo "  make install            - instala dependencias com poetry"
-	@echo "  make run-all            - limpa runs, executa notebooks, analisa e sobe MLflow"
-	@echo "  make notebooks          - executa 01_eda e 02_baselines em sequencia"
-	@echo "  make notebooks-eda      - executa somente 01_eda.ipynb"
-	@echo "  make notebooks-baselines- executa somente 02_baselines.ipynb"
-	@echo "  make analyze            - analisa automaticamente a ultima run no mlruns/"
-	@echo "  make mlflow             - sobe o MLflow UI em $(MLFLOW_HOST):$(MLFLOW_PORT)"
-	@echo "  make mlflow-up          - sobe MLflow em background e mostra link"
-	@echo "  make mlflow-down        - derruba MLflow em background"
-	@echo "  make mlflow-clean       - limpa artefatos locais em mlruns/"
+	@echo "  make install             - instala dependencias com poetry"
+	@echo "  make run-all             - limpa runs, executa todos os notebooks, analisa e sobe MLflow"
+	@echo "  make notebooks           - executa 01_eda, 02_baselines e 03_mlp_pytorch em sequencia"
+	@echo "  make notebooks-eda       - executa somente 01_eda.ipynb"
+	@echo "  make notebooks-baselines - executa somente 02_baselines.ipynb"
+	@echo "  make notebooks-mlp       - executa somente 03_mlp_pytorch.ipynb"
+	@echo "  make analyze             - analisa automaticamente as runs no mlruns/"
+	@echo "  make mlflow              - sobe o MLflow UI em $(MLFLOW_HOST):$(MLFLOW_PORT)"
+	@echo "  make mlflow-up           - sobe MLflow em background e mostra link"
+	@echo "  make mlflow-down         - derruba MLflow em background"
+	@echo "  make mlflow-clean        - limpa artefatos locais em mlruns/"
 
 install:
 	@echo "[install] Instalando dependencias..."
@@ -36,7 +38,7 @@ run-all: mlflow-clean notebooks analyze mlflow-up
 	@echo "[run-all] Steps concluidos: clean -> notebooks -> analysis -> mlflow"
 	@echo "[run-all] Abra: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"
 
-notebooks: notebooks-eda notebooks-baselines
+notebooks: notebooks-eda notebooks-baselines notebooks-mlp
 	@echo "[notebooks] Execucao completa finalizada."
 
 notebooks-eda:
@@ -56,6 +58,15 @@ notebooks-baselines:
 		--Application.log_level=$(NB_LOG_LEVEL) \
 		$(BASELINE_NOTEBOOK)
 	@echo "[notebooks-baselines] Concluido."
+
+notebooks-mlp:
+	@echo "[notebooks-mlp] Iniciando execucao de $(MLP_NOTEBOOK)..."
+	$(POETRY) run jupyter nbconvert --to notebook --execute --inplace \
+		--ExecutePreprocessor.timeout=$(NB_TIMEOUT) \
+		--ExecutePreprocessor.iopub_timeout=$(IOPUB_TIMEOUT) \
+		--Application.log_level=$(NB_LOG_LEVEL) \
+		$(MLP_NOTEBOOK)
+	@echo "[notebooks-mlp] Concluido."
 
 analyze:
 	@echo "[analysis] Lendo mlruns e analisando resultados..."

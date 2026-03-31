@@ -13,7 +13,11 @@ RUN_NAMES = [
     "dummy_stratified",
     "log_reg",
     "log_reg_mitigated_equalized_odds",
+    "mlp_pytorch_v1",
 ]
+
+# Runs opcionais: ausência não interrompe a análise
+OPTIONAL_RUN_NAMES = {"mlp_pytorch_v1"}
 
 METRICS = [
     "accuracy",
@@ -21,6 +25,7 @@ METRICS = [
     "roc_auc",
     "pr_auc",
     "positive_rate",
+    "best_val_loss",
     "dp_diff_gender",
     "eo_diff_gender",
     "tp",
@@ -149,15 +154,22 @@ def main(log_level: str | None = None) -> int:
         return 1
 
     runs = collect_runs(mlruns_root)
-    missing = [n for n in RUN_NAMES if n not in runs]
+    required = [n for n in RUN_NAMES if n not in OPTIONAL_RUN_NAMES]
+    missing = [n for n in required if n not in runs]
     if missing:
         log_kv(logger, "analysis.missing_runs", missing=",".join(missing))
         logger.info("[analysis] Rode: make notebooks")
         return 1
 
+    missing_optional = [n for n in OPTIONAL_RUN_NAMES if n not in runs]
+    if missing_optional:
+        log_kv(logger, "analysis.missing_optional_runs", missing=",".join(missing_optional))
+        logger.info("[analysis] Para incluir MLP: make notebooks-mlp")
+
     dummy = runs["dummy_stratified"]
     logreg = runs["log_reg"]
     mitig = runs["log_reg_mitigated_equalized_odds"]
+    mlp = runs.get("mlp_pytorch_v1")
 
     logger.info("[analysis] Resumo automatico da run")
     log_kv(logger, "analysis.dataset", dataset_version=logreg.params.get("dataset_version", "n/a"))
@@ -243,10 +255,43 @@ def main(log_level: str | None = None) -> int:
         delta_valor_por_cliente_vs_log_reg=f"{d_value_per_customer:.4f}",
     )
 
+    if mlp is not None:
+        logger.info("[analysis] MLP PyTorch")
+        log_kv(
+            logger,
+            "analysis.performance.mlp_pytorch",
+            accuracy=fmt(mlp.metrics.get("accuracy")),
+            f1=fmt(mlp.metrics.get("f1")),
+            roc_auc=fmt(mlp.metrics.get("roc_auc")),
+            pr_auc=fmt(mlp.metrics.get("pr_auc")),
+            best_val_loss=fmt(mlp.metrics.get("best_val_loss")),
+        )
+        log_kv(
+            logger,
+            "analysis.business.mlp_pytorch",
+            tp=fmt_intlike(mlp.metrics.get("tp")),
+            fp=fmt_intlike(mlp.metrics.get("fp")),
+            clientes_abordados=fmt_intlike(mlp.metrics.get("clientes_abordados")),
+            valor_liquido=fmt(mlp.metrics.get("valor_liquido"), digits=2),
+            valor_por_cliente=fmt(mlp.metrics.get("valor_por_cliente"), digits=4),
+        )
+        d_roc_mlp = (mlp.metrics.get("roc_auc", 0.0) - logreg.metrics.get("roc_auc", 0.0))
+        d_f1_mlp  = (mlp.metrics.get("f1", 0.0) - logreg.metrics.get("f1", 0.0))
+        d_vl_mlp  = (mlp.metrics.get("valor_liquido", 0.0) - logreg.metrics.get("valor_liquido", 0.0))
+        log_kv(
+            logger,
+            "analysis.delta.mlp_vs_log_reg",
+            delta_roc_auc=f"{d_roc_mlp:+.4f}",
+            delta_f1=f"{d_f1_mlp:+.4f}",
+            delta_valor_liquido=f"{d_vl_mlp:+.2f}",
+        )
+
     logger.info("[analysis] Leitura sugerida")
     logger.info("1) log_reg supera dummy com folga em metricas de classificacao.")
     logger.info("2) mitigacao reduz disparidade (DP/EO) com pequena perda de performance.")
     logger.info("3) decisao final deve equilibrar desempenho e equidade.")
+    if mlp is not None:
+        logger.info("4) MLP PyTorch disponivel — compare com log_reg antes de decidir pelo modelo de producao.")
     return 0
 
 

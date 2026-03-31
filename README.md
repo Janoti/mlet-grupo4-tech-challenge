@@ -20,8 +20,8 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 ## 2. Pipeline e notebooks
 
 - `01_eda.ipynb`: Exploração e análise dos dados
-- `02_baselines.ipynb`: Baselines, fairness, métricas de negócio, MLflow
-- `03_mlp_pytorch.ipynb`: Pipeline robusto com MLP em PyTorch, automação, rastreabilidade
+- `02_baselines.ipynb`: Baselines, fairness, métricas de negócio, MLflow; exporta splits preprocessados para o MLP
+- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, análise de custo por threshold e MLflow
 
 ## 3. Dataset principal
 
@@ -100,6 +100,7 @@ make run-all
 make notebooks
 make notebooks-eda
 make notebooks-baselines
+make notebooks-mlp
 make analyze
 make mlflow
 make mlflow-up
@@ -118,9 +119,10 @@ O `make run-all` executa estes steps automaticamente:
 
 1. Limpa `mlruns/`.
 2. Executa `notebooks/01_eda.ipynb`.
-3. Executa `notebooks/02_baselines.ipynb`.
-4. Le os runs em `mlruns/` e imprime analise resumida (ganho do `log_reg` vs `dummy` e trade-off da mitigacao).
-5. Sobe MLflow em background e mostra o link.
+3. Executa `notebooks/02_baselines.ipynb` (exporta splits preprocessados para `data/processed/`).
+4. Executa `notebooks/03_mlp_pytorch.ipynb` (MLP com early stopping, métricas e MLflow).
+5. Le os runs em `mlruns/` e imprime analise resumida (baselines + MLP).
+6. Sobe MLflow em background e mostra o link.
 
 Saidas esperadas no terminal:
 
@@ -129,6 +131,8 @@ Saidas esperadas no terminal:
 	- `[notebooks-eda] Concluido.`
 	- `[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...`
 	- `[notebooks-baselines] Concluido.`
+	- `[notebooks-mlp] Iniciando execucao de notebooks/03_mlp_pytorch.ipynb...`
+	- `[notebooks-mlp] Concluido.`
 	- `[notebooks] Execucao completa finalizada.`
 - `make analyze`:
 	- `[analysis] Resumo automatico da run`

@@ -63,10 +63,11 @@ Particionamento para avaliacao inicial:
 ## 6. Pipeline e decisões técnicas
 
 - EDA detalhada e documentada
-- Baselines: DummyClassifier, LogisticRegression, fairness com Fairlearn
-- Pipeline MLP em PyTorch (robustez, automação, rastreabilidade)
-- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
-- Automação via Makefile e rastreabilidade via MLflow
+- Baselines: `DummyClassifier`, `LogisticRegression` com tuning (GridSearchCV), fairness com Fairlearn e mitigação `EqualizedOdds`
+- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`, mini-batches (512), early stopping (patience=10), `ReduceLROnPlateau`
+- Análise de trade-off de custo por threshold (varredura 0.10–0.90, maximização de valor líquido)
+- Métricas de negócio integradas e rastreadas no MLflow (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
+- Automação fim a fim via Makefile (`run-all`, `notebooks-mlp`, `analyze`, `mlflow-up/down`)
 
 ## 7. Saída do modelo
 
@@ -142,35 +143,31 @@ Requisito minimo de preparo para treino:
 9. Documentar resultados no model card e preparar versao inicial de inferencia.
 10. Calibrar `V_RETIDO` e `C_ACAO` com negocio para tomada de decisao operacional.
 
-## 12. Status atual da Fase 1
+## 12. Status atual
 
-Resultados consolidados do baseline em `notebooks/02_baselines.ipynb`:
+### Baselines (`notebooks/02_baselines.ipynb`)
 
-- Melhor baseline: `LogisticRegression`.
-- Metricas no teste:
-  - Accuracy: `0.8069`
-  - F1: `0.7425`
-  - ROC-AUC: `0.8783`
-  - PR-AUC: `0.8480`
+- Melhor baseline: `LogisticRegression` (C=0.1, L2).
+- Metricas no teste: Accuracy `0.8069` | F1 `0.7425` | ROC-AUC `0.8784` | PR-AUC `0.8480`
+- Valor líquido: R$ 1.190.800 (TP=2.731, FP=763)
 
-Fairness (baseline logistico, por `gender`):
+Fairness (por `gender`): `dp_diff=0.0552` | `eo_diff=0.0741`
 
-- `demographic_parity_difference`: `0.0552`
-- `equalized_odds_difference`: `0.0741`
+Mitigacao com `ExponentiatedGradient` + `EqualizedOdds`: Accuracy `0.8007` | F1 `0.7352` | custo −R$ 9.850
 
-Mitigacao com `ExponentiatedGradient` + `EqualizedOdds` (configuracao rapida):
+### MLP PyTorch (`notebooks/03_mlp_pytorch.ipynb`)
 
-- Accuracy: `0.8007`
-- F1: `0.7352`
-- `dp_diff_gender`: `0.0518`
-- `eo_diff_gender`: `0.0847`
-- Tempo de execucao aproximado da mitigacao: ~`24s` com amostra estratificada de treino.
+- Arquitetura: 128→64, BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`
+- Treinamento: mini-batches (512), early stopping (patience=10), `ReduceLROnPlateau`
+- Avaliação: Accuracy, F1, ROC-AUC, PR-AUC, Confusion Matrix
+- Trade-off de custo: varredura de threshold (0.10–0.90) com maximização de valor líquido
+- Experimento registrado no MLflow: `churn-mlp-pytorch`
 
-Automacao e rastreabilidade ja implementadas no codigo:
+### Automação e rastreabilidade
 
-- Execucao fim a fim por Make (`make run-all`) com limpeza de runs, execucao dos notebooks, analise automatica e subida do MLflow.
-- Analise automatica de runs locais via `scripts/analyze_mlruns.py`.
-- Logging padronizado em scripts principais para facilitar troubleshooting e auditoria.
+- `make run-all`: EDA → baselines (com export de splits) → MLP → análise → MLflow
+- `make notebooks-mlp`: executa somente `03_mlp_pytorch.ipynb`
+- `scripts/analyze_mlruns.py`: analisa baselines e MLP automaticamente
 
 ## 13. Próximos passos
 
