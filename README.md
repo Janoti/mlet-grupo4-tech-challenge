@@ -5,7 +5,7 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 ## Status atual
 
 - EDA executável e documentada
-- Baselines (`DummyClassifier`, `LogisticRegression`) e fairness com Fairlearn
+- Baselines: `DummyClassifier`, `LogisticRegression`, `RandomForest`, `GradientBoosting` com fairness (Fairlearn)
 - Pipeline MLP em PyTorch com rastreabilidade no MLflow
 - Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
 - Automação fim a fim via Makefile (`run-all`, `analyze`, `mlflow-up/down`)
@@ -20,8 +20,8 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 ## 2. Pipeline e notebooks
 
 - `01_eda.ipynb`: Exploração e análise dos dados
-- `02_baselines.ipynb`: Baselines, fairness, métricas de negócio, MLflow; exporta splits preprocessados para o MLP
-- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, análise de custo por threshold e MLflow
+- `02_baselines.ipynb`: Baselines lineares e de árvore (`Dummy`, `LogReg`, `RandomForest`, `GradientBoosting`), fairness, métricas de negócio, MLflow; exporta splits
+- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, comparação vs. todos os baselines, análise de custo por threshold e MLflow
 
 ## 3. Dataset principal
 
