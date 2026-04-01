@@ -25,8 +25,9 @@ Estimar o risco de churn por cliente para priorizar campanhas de retenção, max
 
 ## 4. Modelos e pipeline
 
-- Baselines: `DummyClassifier`, `LogisticRegression` (com fairness e tuning de hiperparâmetros)
-- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, BCEWithLogitsLoss, early stopping
+- Baselines lineares: `DummyClassifier`, `LogisticRegression` (com tuning e fairness)
+- Baselines de árvore: `RandomForestClassifier` (200 estimadores), `GradientBoostingClassifier` (100 estimadores)
+- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, BCEWithLogitsLoss, early stopping, seeds fixadas
 - Experimentos registrados no MLflow (`churn-baselines`, `churn-mlp-pytorch`)
 
 Fluxo reprodutível:

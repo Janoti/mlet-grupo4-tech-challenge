@@ -13,11 +13,13 @@ RUN_NAMES = [
     "dummy_stratified",
     "log_reg",
     "log_reg_mitigated_equalized_odds",
+    "random_forest",
+    "gradient_boosting",
     "mlp_pytorch_v1",
 ]
 
 # Runs opcionais: ausência não interrompe a análise
-OPTIONAL_RUN_NAMES = {"mlp_pytorch_v1"}
+OPTIONAL_RUN_NAMES = {"mlp_pytorch_v1", "random_forest", "gradient_boosting"}
 
 METRICS = [
     "accuracy",
@@ -166,10 +168,12 @@ def main(log_level: str | None = None) -> int:
         log_kv(logger, "analysis.missing_optional_runs", missing=",".join(missing_optional))
         logger.info("[analysis] Para incluir MLP: make notebooks-mlp")
 
-    dummy = runs["dummy_stratified"]
+    dummy  = runs["dummy_stratified"]
     logreg = runs["log_reg"]
-    mitig = runs["log_reg_mitigated_equalized_odds"]
-    mlp = runs.get("mlp_pytorch_v1")
+    mitig  = runs["log_reg_mitigated_equalized_odds"]
+    rf     = runs.get("random_forest")
+    gb     = runs.get("gradient_boosting")
+    mlp    = runs.get("mlp_pytorch_v1")
 
     logger.info("[analysis] Resumo automatico da run")
     log_kv(logger, "analysis.dataset", dataset_version=logreg.params.get("dataset_version", "n/a"))
@@ -206,6 +210,24 @@ def main(log_level: str | None = None) -> int:
         delta_roc_auc=f"{d_roc:.4f}",
         delta_pr_auc=f"{d_pr:.4f}",
     )
+
+    for ensemble_run, label in [(rf, "random_forest"), (gb, "gradient_boosting")]:
+        if ensemble_run is not None:
+            log_kv(
+                logger,
+                f"analysis.performance.{label}",
+                accuracy=fmt(ensemble_run.metrics.get("accuracy")),
+                f1=fmt(ensemble_run.metrics.get("f1")),
+                roc_auc=fmt(ensemble_run.metrics.get("roc_auc")),
+                pr_auc=fmt(ensemble_run.metrics.get("pr_auc")),
+                valor_liquido=fmt(ensemble_run.metrics.get("valor_liquido"), digits=2),
+            )
+            d_roc_ens = ensemble_run.metrics.get("roc_auc", 0.0) - logreg.metrics.get("roc_auc", 0.0)
+            log_kv(
+                logger,
+                f"analysis.delta.{label}_vs_log_reg",
+                delta_roc_auc=f"{d_roc_ens:+.4f}",
+            )
 
     logger.info("[analysis] Mitigacao (trade-off)")
     log_kv(

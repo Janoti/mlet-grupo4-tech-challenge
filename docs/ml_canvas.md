@@ -63,8 +63,10 @@ Particionamento para avaliacao inicial:
 ## 6. Pipeline e decisões técnicas
 
 - EDA detalhada e documentada
-- Baselines: `DummyClassifier`, `LogisticRegression` com tuning (GridSearchCV), fairness com Fairlearn e mitigação `EqualizedOdds`
-- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`, mini-batches (512), early stopping (patience=10), `ReduceLROnPlateau`
+- Baselines lineares: `DummyClassifier`, `LogisticRegression` com tuning (GridSearchCV), fairness com Fairlearn e mitigação `EqualizedOdds`
+- Baselines de árvore: `RandomForestClassifier` (200 estimadores, max_depth=10) e `GradientBoostingClassifier` (100 estimadores, lr=0.1)
+- MLP em PyTorch: duas camadas ocultas (128→64), BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`, mini-batches (512), early stopping (patience=10), `ReduceLROnPlateau`, seeds fixadas
+- Comparação completa: MLP vs. lineares + árvores com ≥ 4 métricas (Accuracy, F1, ROC-AUC, PR-AUC, Confusion Matrix)
 - Análise de trade-off de custo por threshold (varredura 0.10–0.90, maximização de valor líquido)
 - Métricas de negócio integradas e rastreadas no MLflow (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
 - Automação fim a fim via Makefile (`run-all`, `notebooks-mlp`, `analyze`, `mlflow-up/down`)
@@ -147,20 +149,27 @@ Requisito minimo de preparo para treino:
 
 ### Baselines (`notebooks/02_baselines.ipynb`)
 
-- Melhor baseline: `LogisticRegression` (C=0.1, L2).
-- Metricas no teste: Accuracy `0.8069` | F1 `0.7425` | ROC-AUC `0.8784` | PR-AUC `0.8480`
-- Valor líquido: R$ 1.190.800 (TP=2.731, FP=763)
+Modelos treinados e registrados no MLflow (`churn-baselines`):
 
-Fairness (por `gender`): `dp_diff=0.0552` | `eo_diff=0.0741`
+| Modelo | ROC-AUC | F1 | Valor Líquido |
+|---|---|---|---|
+| `dummy_stratified` | 0.505 | 0.394 | R$ 561.850 |
+| `log_reg` (C=0.1) | 0.878 | 0.743 | R$ 1.190.800 |
+| `random_forest` | — | — | — |
+| `gradient_boosting` | — | — | — |
 
-Mitigacao com `ExponentiatedGradient` + `EqualizedOdds`: Accuracy `0.8007` | F1 `0.7352` | custo −R$ 9.850
+> Valores de RF e GB preenchidos após próximo `make run-all`.
+
+Fairness (log_reg, por `gender`): `dp_diff=0.0552` | `eo_diff=0.0741`
+
+Mitigação `EqualizedOdds`: Accuracy `0.8007` | F1 `0.7352` | custo −R$ 9.850
 
 ### MLP PyTorch (`notebooks/03_mlp_pytorch.ipynb`)
 
-- Arquitetura: 128→64, BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`
+- Arquitetura: 128→64, BatchNorm, Dropout=0.3, `BCEWithLogitsLoss`, seeds fixadas (42)
 - Treinamento: mini-batches (512), early stopping (patience=10), `ReduceLROnPlateau`
-- Avaliação: Accuracy, F1, ROC-AUC, PR-AUC, Confusion Matrix
-- Trade-off de custo: varredura de threshold (0.10–0.90) com maximização de valor líquido
+- Comparação: MLP vs. todos os baselines (lineares + árvores), carregada dinamicamente do MLflow
+- Trade-off de custo: varredura de threshold (0.10–0.90)
 - Experimento registrado no MLflow: `churn-mlp-pytorch`
 
 ### Automação e rastreabilidade
