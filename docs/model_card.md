@@ -11,6 +11,17 @@
 
 Estimar o risco de churn por cliente para priorizar campanhas de retenção, maximizando impacto e otimizando custo operacional.
 
+**Usos pretendidos:**
+- Priorização de clientes para campanhas de retenção proativas
+- Segmentação de risco (alto / médio / baixo) para definição de oferta e abordagem
+- Suporte à decisão do time de CRM/retenção — não substitui julgamento humano
+
+**Usos fora do escopo (não recomendados):**
+- Decisões automáticas sem revisão humana (ex.: cancelamento de benefícios, bloqueio de conta)
+- Aplicação em bases com distribuição significativamente diferente da base de treino (outro país, outro segmento de mercado)
+- Uso como critério único para elegibilidade a serviços, crédito ou ofertas discriminatórias
+- Inferência em tempo real com SLA < 200ms sem otimização específica de serving
+
 ## 3. Dados e preparo
 
 - Fonte: base sintética estendida de telecom
@@ -83,21 +94,86 @@ Fluxo reprodutível:
 
 Nota: na configuração rápida atual, a mitigação não melhorou o gap `eo_diff`. Pode ser retreinada com mais iterações para nova comparação.
 
-## 8. Limitações conhecidas
+## 8. Cenários de falha conhecidos
+
+| Cenário | Causa provável | Impacto | Mitigação |
+|---|---|---|---|
+| Queda brusca de ROC-AUC em produção | Data drift — mudança no perfil de uso ou planos | Campanhas ineficientes, custo desperdiçado | Monitorar distribuição de features mensalmente; retreinar se AUC < 0.78 |
+| Alto volume de falsos positivos | Threshold muito baixo ou mudança sazonal (ex.: promoções) | Custo de campanha elevado sem retorno | Recalibrar threshold via varredura; revisar `valor_liquido` |
+| Alto volume de falsos negativos | Threshold muito alto; churn concentrado em grupos sub-representados | Perda de receita por clientes não abordados | Revisar recall segmentado por grupo; retreinar com dados recentes |
+| Viés por subgrupo demográfico | Desbalanceamento histórico nos dados de treinamento | Clientes de certos grupos sistematicamente ignorados ou super-abordados | Monitorar `dp_diff` e `eo_diff` mensalmente; aplicar mitigação se gap > 0.10 |
+| Falha no pipeline de dados | Feature ausente ou schema alterado na entrada | Erro em inferência ou predição degenerada | Validação de schema com pandera antes da predição; smoke test na API |
+| Leakage em produção | Variável correlacionada ao churn inserida por engano | Métricas infladas sem generalização real | Auditoria de features a cada atualização de pipeline |
+
+## 9. Arquitetura de deploy
+
+**Modo escolhido: Batch (offline scoring)**
+
+Justificativa:
+- O time de CRM executa campanhas em ciclos mensais — não há necessidade de score em tempo real
+- O volume de clientes (~50k–200k) é adequado para batch overnight
+- Simplifica auditoria e rastreabilidade (cada score tem timestamp e versão de modelo)
+
+**Fluxo proposto:**
+```
+Dados de produção → Pipeline sklearn (pré-processamento) → MLP PyTorch → Score por cliente
+→ Tabela de priorização (CRM) → Campanha de retenção → Feedback de resultado
+```
+
+**Alternativa real-time (opcional):**
+- Usar FastAPI + modelo serializado (`.pt` ou ONNX) para score individual via `/predict`
+- Adequada para integração com app mobile ou atendimento inbound
+- Requer monitoramento de latência (P99 < 200ms) e autoscaling
+
+## 10. Plano de monitoramento
+
+### Métricas a monitorar
+
+| Métrica | Frequência | Alerta |
+|---|---|---|
+| ROC-AUC no conjunto de validação rolling | Mensal | < 0.78 |
+| Taxa de churn real pós-campanha vs. prevista | Mensal | Divergência > 15% |
+| `demographic_parity_difference` por `gender` | Mensal | > 0.10 |
+| `equalized_odds_difference` por `gender` | Mensal | > 0.10 |
+| Distribuição de features principais (PSI) | Mensal | PSI > 0.20 em qualquer feature top-10 |
+| Taxa de erros da API `/predict` | Diária (se real-time) | > 1% de erros HTTP 5xx |
+
+### Playbook de resposta
+
+1. **Queda de AUC (< 0.78):**
+   - Verificar drift de features com PSI
+   - Se PSI > 0.20 em features críticas → retreinar com janela de dados mais recente
+   - Registrar novo run no MLflow com tag `retrain_trigger=drift`
+
+2. **Gap de fairness acima do limiar:**
+   - Retreinar com `EqualizedOdds` e mais iterações (`max_iter=50`)
+   - Comparar `eo_diff` antes/depois no MLflow
+   - Escalar para compliance se gap persistir após 2 ciclos
+
+3. **Erro em produção (schema inválido):**
+   - Pipeline de validação rejeita entrada e retorna erro estruturado
+   - Alertar time de dados via log estruturado (`logger.error`)
+   - Não servir predição com dados incompletos
+
+4. **Performance abaixo do SLO por 2 ciclos consecutivos:**
+   - Abrir processo de revisão de modelo (nova rodada experimental)
+   - Considerar re-engenharia de features ou arquitetura alternativa
+
+## 11. Limitações conhecidas
 
 - Base sintética (não representa integralmente o comportamento de produção)
 - Fairness avaliada apenas nos atributos disponíveis (`gender`, `age`) — pode não cobrir todos os fatores sensíveis relevantes
 - A mitigação pode reduzir gap de fairness com perda de performance; a decisão final depende do trade-off acordado com o negócio
 - MLP sem avaliação de fairness formal (apenas métricas técnicas e de negócio nesta versão)
 
-## 9. Decisão de uso
+## 12. Decisão de uso
 
 - Modelo candidato a piloto: `LogisticRegression` baseline (melhor equilíbrio entre ROC-AUC/PR-AUC e simplicidade operacional)
 - Modelo em avaliação: MLP PyTorch (maior capacidade, requer validação de fairness e calibração)
 - Critério mínimo de fairness: definir com negócio e compliance antes de produção
 - Data da decisão: TBD
 
-## 10. Próximos passos
+## 13. Próximos passos
 
 1. Calibrar `V_RETIDO` e `C_ACAO` com negócio para decisão operacional realista.
 2. Consolidar threshold operacional da campanha (varredura 0.10–0.90 já implementada).
