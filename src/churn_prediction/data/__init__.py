@@ -1,0 +1,1 @@
+"Camada de dados: carregamento, limpeza, validação e divisão."

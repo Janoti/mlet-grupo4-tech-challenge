@@ -71,6 +71,33 @@ Particionamento para avaliacao inicial:
 - Métricas de negócio integradas e rastreadas no MLflow (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
 - Automação fim a fim via Makefile (`run-all`, `notebooks-mlp`, `analyze`, `mlflow-up/down`)
 
+## 6.1 Operacionalização técnica
+
+O projeto iniciou a migração da lógica concentrada em notebooks para módulos Python reutilizáveis em `src/churn_prediction`.
+
+Direcionamento desta etapa:
+
+- estruturar o código por domínio técnico;
+- separar configuração, núcleo compartilhado, dados, features, modelagem, neural e orquestração;
+- preparar a base para pipeline reproduzível;
+- habilitar futuras etapas de testes, API e observabilidade.
+
+Estrutura inicial da aplicação:
+
+```text
+src/churn_prediction/
+├── config/
+├── core/
+├── data/
+├── features/
+├── modeling/
+├── neural/
+├── orchestration/
+└── pipelines/
+```
+
+Nesta fase, a alteração é arquitetural e não representa mudança deliberada no comportamento do modelo.
+
 ## 7. Saída do modelo
 
 - Score de churn por cliente.
@@ -135,15 +162,15 @@ Requisito minimo de preparo para treino:
 ## 11. Plano de execucao (curto prazo)
 
 1. Consolidar EDA com foco em qualidade dos dados, target e sinais de risco.
-2. Aplicar tratamento minimo reprodutivel para baseline.
-3. Separar a base em treino/teste com split estratificado 80/20.
-4. Treinar baselines com `DummyClassifier` e `LogisticRegression` em `notebooks/02_baselines.ipynb`.
-5. Registrar parametros, metricas e versao do dataset no MLflow.
-6. Avaliar fairness por subgrupo e gaps (DP/EO).
-7. Testar mitigacao de referencia com `EqualizedOdds` quando houver gap relevante.
-8. Definir cutoff operacional para campanha piloto.
-9. Documentar resultados no model card e preparar versao inicial de inferencia.
-10. Calibrar `V_RETIDO` e `C_ACAO` com negocio para tomada de decisao operacional.
+2. Migrar incrementalmente a logica do EDA para modulos Python reutilizaveis.
+3. Aplicar tratamento minimo reprodutivel para baseline.
+4. Separar a base em treino/teste com split estratificado 80/20.
+5. Treinar baselines com `DummyClassifier` e `LogisticRegression` em `notebooks/02_baselines.ipynb`.
+6. Registrar parametros, metricas e versao do dataset no MLflow.
+7. Avaliar fairness por subgrupo e gaps (DP/EO).
+8. Testar mitigacao de referencia com `EqualizedOdds` quando houver gap relevante.
+9. Definir cutoff operacional para campanha piloto.
+10. Documentar resultados no model card e preparar versao inicial de inferencia.
 
 ## 12. Status atual
 
@@ -178,7 +205,17 @@ Mitigação `EqualizedOdds`: Accuracy `0.8007` | F1 `0.7352` | custo −R$ 9.850
 - `make notebooks-mlp`: executa somente `03_mlp_pytorch.ipynb`
 - `scripts/analyze_mlruns.py`: analisa baselines e MLP automaticamente
 
+### Refatoração estrutural
+
+- Estrutura base criada em `src/churn_prediction`
+- Separação inicial entre configuração, componentes centrais, dados, features, modelagem, neural, orquestração e pipelines
+- Próximos commits migrarão gradualmente a lógica hoje concentrada em notebooks
+
 ## 13. Próximos passos
 
+- Migrar o tratamento do EDA para módulos reutilizáveis
+- Evoluir pipeline reproduzível em `src/churn_prediction/pipelines/`
+- Adicionar testes automatizados
+- Criar API de inferência
 - Evoluir arquitetura do modelo (feature engineering, tuning, explainability)
 - Monitoramento contínuo e atualização do pipeline

@@ -10,6 +10,7 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 - Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
 - Automação fim a fim via Makefile (`run-all`, `analyze`, `mlflow-up/down`)
 - Documentação técnica e de negócio atualizada
+- Refatoração arquitetural iniciada em `src/churn_prediction`
 
 ## 1. Objetivo
 
@@ -47,17 +48,59 @@ mlet-grupo4-tech-challenge/
 │   └── processed/
 ├── docs/
 │   ├── ml_canvas.md
-│   └── 02_baselines.ipynb
+│   └── model_card.md
+├── notebooks/
+│   ├── 01_eda.ipynb
+│   ├── 02_baselines.ipynb
+│   └── 03_mlp_pytorch.ipynb
 ├── scripts/
 │   ├── analyze_mlruns.py
 │   ├── generate_dataset.py
 │   ├── generate_synthetic.py
 │   └── logging_utils.py
-├── src/churn_prediction/
+├── src/
+│   └── churn_prediction/
+│       ├── config/
+│       ├── core/
+│       ├── data/
+│       ├── features/
+│       ├── modeling/
+│       ├── neural/
+│       ├── orchestration/
+│       └── pipelines/
 ├── tests/
 ├── pyproject.toml
+├── Makefile
 └── README.md
 ```
+
+## 4.1 Refatoração arquitetural em andamento
+
+O projeto iniciou uma refatoração incremental para migrar responsabilidades antes concentradas em notebooks para uma arquitetura modular em `src/churn_prediction`.
+
+Objetivos desta etapa:
+
+- separar responsabilidades por camada;
+- reduzir acoplamento entre EDA, baselines e MLP;
+- preparar o projeto para pipeline reproduzível;
+- facilitar testes automatizados, serving via API e observabilidade;
+- melhorar manutenção, rastreabilidade e escalabilidade do código.
+
+Estrutura inicial criada:
+
+```text
+src/churn_prediction/
+├── config/         # settings e configuração central
+├── core/           # paths, enums, protocols e contratos compartilhados
+├── data/           # carga, limpeza, split e regras de qualidade
+├── features/       # transformadores e engenharia de atributos
+├── modeling/       # treino, métricas, fairness e tracking
+├── neural/         # componentes PyTorch
+├── orchestration/  # entrypoints finos para notebooks/scripts
+└── pipelines/      # pipelines reproduzíveis e factories
+```
+
+Nesta fase, a mudança é estrutural. A lógica de negócio será migrada em commits posteriores.
 
 ## 5. Automação e rastreabilidade
 
@@ -127,24 +170,24 @@ O `make run-all` executa estes steps automaticamente:
 Saidas esperadas no terminal:
 
 - `make notebooks`:
-	- `[notebooks-eda] Iniciando execucao de notebooks/01_eda.ipynb...`
-	- `[notebooks-eda] Concluido.`
-	- `[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...`
-	- `[notebooks-baselines] Concluido.`
-	- `[notebooks-mlp] Iniciando execucao de notebooks/03_mlp_pytorch.ipynb...`
-	- `[notebooks-mlp] Concluido.`
-	- `[notebooks] Execucao completa finalizada.`
+  - `[notebooks-eda] Iniciando execucao de notebooks/01_eda.ipynb...`
+  - `[notebooks-eda] Concluido.`
+  - `[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...`
+  - `[notebooks-baselines] Concluido.`
+  - `[notebooks-mlp] Iniciando execucao de notebooks/03_mlp_pytorch.ipynb...`
+  - `[notebooks-mlp] Concluido.`
+  - `[notebooks] Execucao completa finalizada.`
 - `make analyze`:
-	- `[analysis] Resumo automatico da run`
-	- metricas de `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`
-	- deltas de performance e leitura sugerida para apresentacao
-	- resumo da metrica de negocio (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
-	- aviso quando algum run esperado ainda nao existe no `mlruns/`
+  - `[analysis] Resumo automatico da run`
+  - metricas de `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`
+  - deltas de performance e leitura sugerida para apresentacao
+  - resumo da metrica de negocio (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
+  - aviso quando algum run esperado ainda nao existe no `mlruns/`
 - `make mlflow`:
-	- `[mlflow] Subindo MLflow UI em http://127.0.0.1:5000`
+  - `[mlflow] Subindo MLflow UI em http://127.0.0.1:5000`
 - `make mlflow-up`:
-	- `[mlflow] PID: ...`
-	- `[mlflow] Link: http://127.0.0.1:5000`
+  - `[mlflow] PID: ...`
+  - `[mlflow] Link: http://127.0.0.1:5000`
 
 Observacao:
 
@@ -176,13 +219,13 @@ Exemplo com parametrizacao explicita:
 
 ```bash
 poetry run python scripts/generate_synthetic.py \
-	--n-rows 50000 \
-	--seed 42 \
-	--out-dir data/raw \
-	--duplicate-row-rate 0.03 \
-	--duplicate-id-rate 0.02 \
-	--missing-noise-rate 0.01 \
-	--invalid-value-rate 0.01
+  --n-rows 50000 \
+  --seed 42 \
+  --out-dir data/raw \
+  --duplicate-row-rate 0.03 \
+  --duplicate-id-rate 0.02 \
+  --missing-noise-rate 0.01 \
+  --invalid-value-rate 0.01
 ```
 
 Arquivo gerado:
@@ -203,17 +246,17 @@ Arquivo gerado:
 
 1. Gerar/validar dataset em `data/raw`.
 2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`. O EDA inclui analise de correlacao entre features numericas: foram identificados **14 pares com |r| > 0.7**, sendo os mais criticos:
-	- `price_increase_last_3m` ↔ `invoice_shock_flag` (r = 0.99)
-	- `avg_bill_last_6m` ↔ `monthly_charges` (r = 0.97)
-	- `data_gb_monthly` ↔ `avg_usage_last_3m` (r = 0.97)
-	- `late_payments_6m` ↔ `default_flag` (r = 0.92)
+   - `price_increase_last_3m` ↔ `invoice_shock_flag` (r = 0.99)
+   - `avg_bill_last_6m` ↔ `monthly_charges` (r = 0.97)
+   - `data_gb_monthly` ↔ `avg_usage_last_3m` (r = 0.97)
+   - `late_payments_6m` ↔ `default_flag` (r = 0.92)
 
-	Pares com |r| > 0.9 representam informacao redundante e devem ser consolidados, especialmente para modelos sensiveis a multicolinearidade como a regressao logistica.
+   Pares com |r| > 0.9 representam informacao redundante e devem ser consolidados, especialmente para modelos sensiveis a multicolinearidade como a regressao logistica.
 3. No proprio EDA da Fase 1, aplicar tratamento minimo para baseline:
-	- remocao de duplicados
-	- correcao de valores invalidos
-	- imputacao simples
-	- one-hot encoding das categoricas
+   - remocao de duplicados
+   - correcao de valores invalidos
+   - imputacao simples
+   - one-hot encoding das categoricas
 4. Separar os dados em treino e teste com split estratificado `80/20`.
 5. Treinar baselines com `DummyClassifier` e `LogisticRegression` no notebook `notebooks/02_baselines.ipynb`.
 6. Tunar hiperparametros com `GridSearchCV` (5-fold estratificado) variando `C` em [0.001, 0.01, 0.1, 1, 10, 100] e comparar penalidades L1, L2 e ElasticNet. Melhor configuracao encontrada: `C=0.1` com L2 (diferenca entre penalidades < 0.0002 em ROC-AUC).
@@ -248,10 +291,10 @@ Metrica de negocio (status atual):
 
 - Ja registrada automaticamente no MLflow para `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`.
 - Formula operacionalizada no notebook:
-	- `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
-	- `valor_por_cliente = valor_liquido / N`
+  - `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
+  - `valor_por_cliente = valor_liquido / N`
 - Campos consolidados e analisados em `make analyze`:
-	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
+  - `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
 
 ## 9. Qualidade de codigo
 
@@ -302,22 +345,23 @@ MLFLOW_PORT=5001 make mlflow
 
 ## 12. Proximos passos
 
-1. Levar o mesmo tratamento da Fase 1 para pipeline reutilizavel em `src/churn_prediction/pipelines/`.
-2. Fechar baseline tabular com comparacao consistente entre treino/teste.
-3. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
-4. Definir corte operacional por top-K para retencao.
-5. Criar camada de inferencia (FastAPI) e testes de contrato.
+1. Migrar progressivamente a logica hoje concentrada nos notebooks para modulos reutilizaveis em `src/churn_prediction/`.
+2. Implementar pipeline tabular reproduzivel em `src/churn_prediction/pipelines/`.
+3. Adicionar testes automatizados (unitarios, schema e smoke tests).
+4. Criar camada de inferencia via FastAPI.
+5. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
+6. Definir corte operacional por top-K para retencao.
 
 ## 13. Resultados dos Baselines e Interpretação
 
 ### 13.1 Desempenho dos modelos
 
-| Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
+| Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Valor Líquido |
 |-------------------------------|----------|-------|---------|--------|------------------|
-| `dummy_stratified`            | 0.5294   | 0.3937| 0.5046  | 0.3959 | R$ 561.850       |
-| `log_reg` (C=1)               | 0.8069   | 0.7425| 0.8783  | 0.8480 | **R$ 1.190.800** |
-| `log_reg_best_penalty` (C=0.1)| 0.8069   | 0.7425| 0.8784  | 0.8480 | R$ 1.190.800     |
-| `log_reg_mitigated_equalized_odds` | 0.8007 | 0.7352|   --   |   --   | R$ 1.180.950     |
+| `dummy_stratified` | 0.5294 | 0.3937 | 0.5046 | 0.3959 | R$ 561.850 |
+| `log_reg` (C=1) | 0.8069 | 0.7425 | 0.8783 | 0.8480 | **R$ 1.190.800** |
+| `log_reg_best_penalty` (C=0.1) | 0.8069 | 0.7425 | 0.8784 | 0.8480 | R$ 1.190.800 |
+| `log_reg_mitigated_equalized_odds` | 0.8007 | 0.7352 | -- | -- | R$ 1.180.950 |
 
 **Interpretação:**
 - O DummyClassifier serve como referência mínima, com métricas próximas ao acaso.
@@ -327,10 +371,10 @@ MLFLOW_PORT=5001 make mlflow
 
 ### 13.2 Diagnóstico de Overfitting
 
-| Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
+| Modelo | delta_roc_auc (treino - teste) | Diagnóstico |
 |---------------|-------------------------------|------------------------------------|
-| `log_reg`     | 0.0013                        | Sem overfitting - generaliza bem   |
-| `dummy_stratified` | -0.0085                   | OK (teste ligeiramente melhor)     |
+| `log_reg` | 0.0013 | Sem overfitting - generaliza bem |
+| `dummy_stratified` | -0.0085 | OK (teste ligeiramente melhor) |
 
 **Interpretação:**
 - O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
@@ -339,9 +383,9 @@ MLFLOW_PORT=5001 make mlflow
 
 | Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
 |-------------|----------|------------|---------------|
-| L2 (Ridge)  | 0.1      | 0.8782     | 0.8783        |
-| L1 (Lasso)  | 0.1      | 0.8783     | 0.8783        |
-| ElasticNet  | 0.1      | 0.8783     | **0.8784**    |
+| L2 (Ridge) | 0.1 | 0.8782 | 0.8783 |
+| L1 (Lasso) | 0.1 | 0.8783 | 0.8783 |
+| ElasticNet | 0.1 | 0.8783 | **0.8784** |
 
 **Interpretação:**
 - As três penalizações convergem para C=0.1, com diferença < 0.0002 em ROC-AUC.
@@ -354,28 +398,28 @@ MLFLOW_PORT=5001 make mlflow
 
 | Atributo sensível | dp_diff | eo_diff |
 |-------------------|---------|---------|
-| `gender`          | 0.0552  | 0.0741  |
-| `age_group`       | 0.1101  | 0.0758  |
-| `region`          | 0.1565  | 0.1672  |
-| `plan_type`       | 0.2960  | 0.1840  |
+| `gender` | 0.0552 | 0.0741 |
+| `age_group` | 0.1101 | 0.0758 |
+| `region` | 0.1565 | 0.1672 |
+| `plan_type` | 0.2960 | 0.1840 |
 
 - O maior gap está em `plan_type`, indicando risco regulatório de concentrar retencao em clientes pré-pagos.
 
 #### `log_reg_mitigated_equalized_odds` (mitigação por `gender`)
 
-| Métrica           | `log_reg` | Mitigado | Variação |
+| Métrica | `log_reg` | Mitigado | Variação |
 |-------------------|-----------|----------|----------|
-| dp_diff_gender    | 0.0552    | 0.0518   | -6%      |
-| eo_diff_gender    | 0.0741    | 0.0847   | +14%     |
-| F1                | 0.7425    | 0.7352   | -0.007   |
-| Valor Líquido     | R$ 1.190.800 | R$ 1.180.950 | -R$ 9.850 |
+| dp_diff_gender | 0.0552 | 0.0518 | -6% |
+| eo_diff_gender | 0.0741 | 0.0847 | +14% |
+| F1 | 0.7425 | 0.7352 | -0.007 |
+| Valor Líquido | R$ 1.190.800 | R$ 1.180.950 | -R$ 9.850 |
 
 - A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
 - Os gaps de outros atributos permanecem sem tratamento.
 
 ### 13.5 Métrica de Negócio
 
-```
+```text
 valor_liquido = TP x R$500 - (TP + FP) x R$50
 ```
 
