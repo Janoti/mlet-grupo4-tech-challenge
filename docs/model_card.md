@@ -5,7 +5,7 @@
 - Projeto: mlet-grupo4-tech-challenge
 - Problema: classificação binária de churn (0/1)
 - Dataset principal: `data/raw/telecom_churn_base_extended.csv`
-- Etapa atual: pipeline robusto com MLP em PyTorch, automação e rastreabilidade em MLflow
+- Etapa atual: pipeline completo com MLP em PyTorch, API FastAPI, Docker, CI/CD, monitoramento de drift e rastreabilidade em MLflow
 
 ## 2. Objetivo do modelo
 

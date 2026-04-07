@@ -102,6 +102,7 @@ Pre-requisitos:
 
 - Python 3.11+ (recomendado 3.12)
 - Poetry
+- Docker Desktop (para containerizacao — opcional para desenvolvimento local)
 
 Dependencias-chave para a etapa de fairness:
 
@@ -302,7 +303,10 @@ poetry run ruff check src scripts tests --fix
 Testes:
 
 ```bash
-poetry run pytest -q
+poetry run pytest -q                              # resumido
+poetry run pytest tests/ -v                       # verbose (todos)
+poetry run pytest tests/test_api.py -v            # apenas testes da API
+poetry run pytest tests/test_schema.py::TestDataCleaning -v  # classe especifica
 ```
 
 ## 10. MLflow (opcional local)
@@ -334,43 +338,123 @@ MLFLOW_PORT=5001 make mlflow
 
 ## 12. API de inferência (FastAPI)
 
-A API expõe o modelo treinado para predições em tempo real:
+A API expõe o modelo treinado para predições em tempo real.
+
+### 12.1 Passo a passo para rodar localmente
 
 ```bash
-# Exportar modelo para a API
-poetry run python scripts/export_model.py
+# 1. Gerar dados (se ainda não existem)
+poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
 
-# Rodar localmente
-poetry run uvicorn churn_prediction.api.main:app --reload --port 8000
+# 2. Exportar pipeline treinado (salva em models/churn_pipeline.joblib)
+PYTHONPATH=src poetry run python scripts/export_model.py
 
-# Via Docker
-docker compose up churn-api
+# 3. Rodar a API (porta 8000)
+PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload --port 8000
 
-# Testar predição
+# 4. Acessar documentação interativa
+#    Swagger UI: http://localhost:8000/docs
+#    ReDoc:      http://localhost:8000/redoc
+```
+
+### 12.2 Passo a passo via Docker
+
+```bash
+# 1. Exportar modelo (necessário antes do build)
+PYTHONPATH=src poetry run python scripts/export_model.py
+
+# 2. Build e start do container
+docker compose up --build churn-api
+
+# A API fica disponível em http://localhost:8000
+```
+
+### 12.3 Testar a API
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Predição de churn
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{"age": 45, "gender": "female", "plan_type": "pos", "monthly_charges": 120, "nps_score": 3}'
 ```
 
-Endpoints:
-- `GET /health` — status da API e do modelo
-- `POST /predict` — predição com probabilidade, classe e faixa de risco
-- `GET /docs` — documentação interativa (Swagger UI)
+Resposta esperada:
+
+```json
+{
+  "churn_probability": 0.6823,
+  "churn_prediction": 1,
+  "risk_level": "medio",
+  "model_version": "churn_pipeline"
+}
+```
+
+### 12.4 Endpoints
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/` | Informações gerais da API |
+| `GET` | `/health` | Status da API e do modelo carregado |
+| `POST` | `/predict` | Predição de churn (probabilidade, classe, risco) |
+| `GET` | `/docs` | Swagger UI (documentação interativa) |
+| `GET` | `/redoc` | ReDoc (documentação formatada) |
+
+Observações:
+- Todos os campos de entrada são opcionais (o pipeline imputa valores ausentes)
+- Campos inválidos retornam HTTP 422 com detalhes do erro (validação Pydantic)
+- A variável `CHURN_MODEL_PATH` permite apontar para outro modelo serializado
 
 ## 13. Monitoramento de drift
 
-```bash
-# Simular drift na API (100 requisições com distribuição alterada)
-poetry run python scripts/simulate_drift.py --n-requests 100
+### 13.1 Passo a passo para simulação de drift
 
-# Analisar drift entre treino e produção
-poetry run python scripts/check_drift.py
+Pré-requisito: a API deve estar rodando (seção 12).
+
+```bash
+# 1. Garantir que a API está no ar
+curl http://localhost:8000/health
+
+# 2. Enviar requisições com distribuição alterada (age +10, charges +30%)
+poetry run python scripts/simulate_drift.py --url http://localhost:8000 --n-requests 100
+
+# Os resultados são salvos em logs/drift_simulation.jsonl
 ```
 
-O monitoramento inclui:
-- **KS test** para features numéricas
-- **Chi² test** para features categóricas
-- **PSI** (Population Stability Index) com limiares: <0.10 OK, 0.10-0.20 investigar, >0.20 retreinar
+### 13.2 Análise de drift
+
+```bash
+# Compara dados de treino com logs de produção
+PYTHONPATH=src poetry run python scripts/check_drift.py \
+  --reference data/raw/telecom_churn_base_extended.csv \
+  --production logs/drift_simulation.jsonl
+```
+
+Saída esperada:
+
+```
+======================================================================
+RELATÓRIO DE DATA DRIFT
+======================================================================
+Features analisadas: 15
+Alertas de drift: 3
+Razão de drift: 20.0%
+----------------------------------------------------------------------
+  ⚠ DRIFT | age                            | kolmogorov_smirnov   | p=0.0001 PSI=0.2541 ⚠ PSI>0.20
+  ⚠ DRIFT | monthly_charges                | kolmogorov_smirnov   | p=0.0003 PSI=0.1872
+    OK     | nps_score                      | kolmogorov_smirnov   | p=0.4521 PSI=0.0123
+======================================================================
+```
+
+### 13.3 Testes estatísticos utilizados
+
+| Teste | Tipo de feature | Interpretação |
+|-------|----------------|---------------|
+| **KS (Kolmogorov-Smirnov)** | Numéricas | p < 0.05 → drift detectado |
+| **Chi² (Qui-Quadrado)** | Categóricas | p < 0.05 → drift detectado |
+| **PSI** | Numéricas | < 0.10 OK · 0.10-0.20 investigar · > 0.20 retreinar |
 
 ## 14. CI/CD (GitHub Actions)
 

@@ -35,6 +35,7 @@ make run-all
 # Run individual notebooks
 make notebooks-eda          # 01_eda.ipynb
 make notebooks-baselines    # 02_baselines.ipynb
+make notebooks-mlp          # 03_mlp_pytorch.ipynb
 
 # MLflow
 make mlflow-up              # Start MLflow UI in background (localhost:5000)
@@ -55,17 +56,18 @@ poetry run ruff check src scripts tests --fix
 poetry run pytest -q
 poetry run pytest tests/ -v             # verbose
 
-# API FastAPI
-poetry run python scripts/export_model.py                    # exporta pipeline treinado
-poetry run uvicorn churn_prediction.api.main:app --reload     # roda API local (porta 8000)
+# API FastAPI (PYTHONPATH=src é necessário para importar o pacote)
+PYTHONPATH=src poetry run python scripts/export_model.py                    # exporta pipeline treinado
+PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload     # roda API local (porta 8000)
 
 # Docker
-docker compose up churn-api             # API containerizada (porta 8000)
+docker compose up --build churn-api     # API containerizada (porta 8000)
 docker compose up mlflow                # MLflow UI containerizada (porta 5000)
+docker compose up                       # ambos os serviços
 
-# Monitoramento de drift
-poetry run python scripts/simulate_drift.py --n-requests 100
-poetry run python scripts/check_drift.py
+# Monitoramento de drift (API deve estar rodando)
+poetry run python scripts/simulate_drift.py --url http://localhost:8000 --n-requests 100
+PYTHONPATH=src poetry run python scripts/check_drift.py
 ```
 
 ## Architecture
