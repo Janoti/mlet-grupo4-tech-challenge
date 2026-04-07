@@ -1,0 +1,119 @@
+"""Schemas Pydantic para validação de entrada/saída da API."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class CustomerFeatures(BaseModel):
+    """Dados de entrada para predição de churn de um cliente.
+
+    Campos obrigatórios correspondem às features do dataset de telecom.
+    Campos opcionais aceitam None (tratados por imputação no pipeline).
+    """
+
+    age: float | None = Field(None, ge=0, le=120, description="Idade do cliente")
+    gender: str | None = Field(None, description="Gênero (male, female, other)")
+    region: str | None = Field(None, description="Região geográfica")
+    plan_type: str | None = Field(None, description="Tipo de plano (pre, pos, controle, empresarial)")
+    plan_price: float | None = Field(None, ge=0)
+    is_promotional_plan: int | None = Field(None, ge=0, le=1)
+    discount_amount: float | None = Field(None, ge=0)
+    price_increase_last_3m: float | None = None
+    months_to_contract_end: float | None = None
+    has_loyalty: int | None = Field(None, ge=0, le=1)
+    months_to_loyalty_end: float | None = None
+    internet_service: str | None = None
+    has_tv: int | None = Field(None, ge=0, le=1)
+    has_fixed: int | None = Field(None, ge=0, le=1)
+    tenure_months: float | None = Field(None, ge=0)
+    network_outages_30d: float | None = Field(None, ge=0)
+    avg_signal_quality: float | None = Field(None, ge=0, le=5)
+    call_drop_rate: float | None = Field(None, ge=0, le=1)
+    avg_internet_speed: float | None = Field(None, ge=0)
+    service_failures_30d: float | None = Field(None, ge=0)
+    installation_delay_days: float | None = None
+    repair_visits_90d: float | None = Field(None, ge=0)
+    minutes_monthly: float | None = Field(None, ge=0)
+    data_gb_monthly: float | None = Field(None, ge=0)
+    sms_monthly: float | None = Field(None, ge=0)
+    usage_delta_pct: float | None = None
+    days_since_last_usage: float | None = Field(None, ge=0)
+    active_days_30d: float | None = Field(None, ge=0, le=30)
+    night_usage_pct: float | None = Field(None, ge=0, le=1)
+    roaming_usage: float | None = Field(None, ge=0)
+    topup_frequency: float | None = Field(None, ge=0)
+    avg_usage_last_3m: float | None = Field(None, ge=0)
+    usage_trend_3m: float | None = None
+    payment_method: str | None = None
+    billing_type: str | None = None
+    late_payments_6m: float | None = Field(None, ge=0)
+    invoice_shock_flag: int | None = Field(None, ge=0, le=1)
+    avg_bill_last_6m: float | None = Field(None, ge=0)
+    bill_variation_pct: float | None = None
+    collection_attempts_30d: float | None = Field(None, ge=0)
+    monthly_charges: float | None = Field(None, ge=0)
+    default_flag: int | None = Field(None, ge=0, le=1)
+    days_past_due: float | None = Field(None, ge=0)
+    support_calls_30d: float | None = Field(None, ge=0)
+    support_calls_90d: float | None = Field(None, ge=0)
+    complaints_30d: float | None = Field(None, ge=0)
+    tickets_open_30d: float | None = Field(None, ge=0)
+    last_complaint_reason: str | None = None
+    resolution_time_avg: float | None = Field(None, ge=0)
+    first_call_resolution_flag: int | None = Field(None, ge=0, le=1)
+    transferred_calls_count: float | None = Field(None, ge=0)
+    last_contact_channel: str | None = None
+    app_login_30d: float | None = Field(None, ge=0)
+    self_service_usage_30d: float | None = Field(None, ge=0)
+    marketing_open_rate: float | None = Field(None, ge=0, le=1)
+    campaign_response_flag: int | None = Field(None, ge=0, le=1)
+    last_offer_accepted: str | None = None
+    days_since_last_interaction: float | None = Field(None, ge=0)
+    portability_request_flag: int | None = Field(None, ge=0, le=1)
+    sim_swap_count: float | None = Field(None, ge=0)
+    competitor_offer_contact_flag: int | None = Field(None, ge=0, le=1)
+    nps_score: float | None = Field(None, ge=0, le=10)
+    nps_category: str | None = None
+    nps_promoter_flag: int | None = Field(None, ge=0, le=1)
+    nps_detractor_flag: int | None = Field(None, ge=0, le=1)
+    csat_score: float | None = Field(None, ge=1, le=5)
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "age": 35,
+            "gender": "male",
+            "region": "Sudeste",
+            "plan_type": "pos",
+            "plan_price": 89.90,
+            "tenure_months": 24,
+            "monthly_charges": 95.50,
+            "nps_score": 7,
+            "support_calls_30d": 2,
+        }
+    ]}}
+
+
+class PredictionResponse(BaseModel):
+    """Resposta da predição de churn."""
+
+    churn_probability: float = Field(
+        ..., ge=0, le=1, description="Probabilidade de churn (0 a 1)"
+    )
+    churn_prediction: int = Field(
+        ..., ge=0, le=1, description="Predição binária (0=não churn, 1=churn)"
+    )
+    risk_level: str = Field(
+        ..., description="Faixa de risco (alto, medio, baixo)"
+    )
+    model_version: str = Field(
+        ..., description="Versão/hash do modelo utilizado"
+    )
+
+
+class HealthResponse(BaseModel):
+    """Resposta do health check."""
+
+    status: str
+    model_loaded: bool
+    model_version: str | None = None
