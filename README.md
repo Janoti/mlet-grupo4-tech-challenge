@@ -9,6 +9,12 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 - Pipeline MLP em PyTorch com rastreabilidade no MLflow
 - Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
 - Automação fim a fim via Makefile (`run-all`, `analyze`, `mlflow-up/down`)
+- **Pipeline reutilizável** em `src/churn_prediction/` (refatorado dos notebooks)
+- **API FastAPI** com endpoints `/predict` e `/health` (Pydantic schemas)
+- **Dockerfile + docker-compose** para deploy containerizado
+- **Testes automatizados** (30 testes: smoke, schema, API)
+- **CI/CD** com GitHub Actions (lint, testes, treinamento, build Docker)
+- **Monitoramento de drift** (KS test, Chi², PSI) com simulação
 - Documentação técnica e de negócio atualizada
 
 ## 1. Objetivo
@@ -41,20 +47,46 @@ Importante:
 
 ```text
 mlet-grupo4-tech-challenge/
+├── .github/workflows/
+│   └── ci_ml_pipeline.yml       # CI/CD: lint, testes, treino, Docker
 ├── data/
-│   ├── raw/
-│   ├── interim/
-│   └── processed/
+│   ├── raw/                     # CSVs brutos (sintéticos)
+│   ├── interim/                 # Artefatos intermediários
+│   └── processed/               # Splits processados
 ├── docs/
 │   ├── ml_canvas.md
-│   └── 02_baselines.ipynb
+│   ├── model_card.md
+│   ├── eda_metodologia.md
+│   └── fase1_doc_tecnica.md
+├── notebooks/
+│   ├── 01_eda.ipynb
+│   ├── 02_baselines.ipynb
+│   └── 03_mlp_pytorch.ipynb
 ├── scripts/
-│   ├── analyze_mlruns.py
-│   ├── generate_dataset.py
-│   ├── generate_synthetic.py
+│   ├── analyze_mlruns.py        # Análise de runs MLflow
+│   ├── export_model.py          # Exporta pipeline para API
+│   ├── simulate_drift.py        # Simula data drift na API
+│   ├── check_drift.py           # Analisa drift treino vs produção
+│   ├── generate_synthetic.py    # Gera dataset sintético
 │   └── logging_utils.py
 ├── src/churn_prediction/
+│   ├── config.py                # Constantes e hiperparâmetros
+│   ├── data_cleaning.py         # Limpeza de dados
+│   ├── preprocessing.py         # Pipeline sklearn (imputer+scaler+OHE)
+│   ├── evaluation.py            # Métricas técnicas e de negócio
+│   ├── model.py                 # MLP PyTorch
+│   ├── monitoring.py            # Drift detection (KS, Chi², PSI)
+│   ├── api/
+│   │   ├── main.py              # FastAPI app (/predict, /health)
+│   │   └── schemas.py           # Pydantic schemas
+│   └── pipelines/
+│       └── __init__.py          # Orquestração prepare_data → train
 ├── tests/
+│   ├── test_smoke.py            # Imports dos módulos
+│   ├── test_schema.py           # Validação Pydantic + data cleaning
+│   └── test_api.py              # Endpoints com mocks
+├── Dockerfile
+├── docker-compose.yml
 ├── pyproject.toml
 └── README.md
 ```
@@ -300,17 +332,65 @@ MLFLOW_PORT=5001 make mlflow
 - Documento tecnico consolidado da Fase 1 (EDA + baseline + automacao): `docs/fase1_doc_tecnica.md`
 - Card do modelo: `docs/model_card.md`
 
-## 12. Proximos passos
+## 12. API de inferência (FastAPI)
 
-1. Levar o mesmo tratamento da Fase 1 para pipeline reutilizavel em `src/churn_prediction/pipelines/`.
-2. Fechar baseline tabular com comparacao consistente entre treino/teste.
-3. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
-4. Definir corte operacional por top-K para retencao.
-5. Criar camada de inferencia (FastAPI) e testes de contrato.
+A API expõe o modelo treinado para predições em tempo real:
 
-## 13. Resultados dos Baselines e Interpretação
+```bash
+# Exportar modelo para a API
+poetry run python scripts/export_model.py
 
-### 13.1 Desempenho dos modelos
+# Rodar localmente
+poetry run uvicorn churn_prediction.api.main:app --reload --port 8000
+
+# Via Docker
+docker compose up churn-api
+
+# Testar predição
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"age": 45, "gender": "female", "plan_type": "pos", "monthly_charges": 120, "nps_score": 3}'
+```
+
+Endpoints:
+- `GET /health` — status da API e do modelo
+- `POST /predict` — predição com probabilidade, classe e faixa de risco
+- `GET /docs` — documentação interativa (Swagger UI)
+
+## 13. Monitoramento de drift
+
+```bash
+# Simular drift na API (100 requisições com distribuição alterada)
+poetry run python scripts/simulate_drift.py --n-requests 100
+
+# Analisar drift entre treino e produção
+poetry run python scripts/check_drift.py
+```
+
+O monitoramento inclui:
+- **KS test** para features numéricas
+- **Chi² test** para features categóricas
+- **PSI** (Population Stability Index) com limiares: <0.10 OK, 0.10-0.20 investigar, >0.20 retreinar
+
+## 14. CI/CD (GitHub Actions)
+
+Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
+1. **Quality**: lint (ruff) + pytest em todo push/PR
+2. **Train**: gera dados → treina → exporta modelo (apenas main)
+3. **Docker**: valida build da imagem (apenas main)
+
+## 15. Proximos passos
+
+1. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
+2. Definir corte operacional por top-K para retencao.
+3. Implementar retreinamento automático via trigger de drift (CT).
+4. Adicionar autenticação JWT à API (conforme Cap. 5 do material).
+5. Deploy em cloud (Render, AWS, Azure) com autoscaling.
+6. Integrar SHAP/LIME para explainability do modelo.
+
+## 16. Resultados dos Baselines e Interpretação
+
+### 16.1 Desempenho dos modelos
 
 | Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
 |-------------------------------|----------|-------|---------|--------|------------------|
@@ -325,7 +405,7 @@ MLFLOW_PORT=5001 make mlflow
 - O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
 - O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
 
-### 13.2 Diagnóstico de Overfitting
+### 16.2 Diagnóstico de Overfitting
 
 | Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
 |---------------|-------------------------------|------------------------------------|
@@ -335,7 +415,7 @@ MLFLOW_PORT=5001 make mlflow
 **Interpretação:**
 - O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
 
-### 13.3 Comparação de Penalizações (L1, L2, ElasticNet)
+### 16.3 Comparação de Penalizações (L1, L2, ElasticNet)
 
 | Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
 |-------------|----------|------------|---------------|
@@ -348,7 +428,7 @@ MLFLOW_PORT=5001 make mlflow
 - Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
 - Mantém-se L2 como referência pela simplicidade.
 
-### 13.4 Fairness por Grupo Sensível
+### 16.4 Fairness por Grupo Sensível
 
 #### `log_reg` (sem mitigação)
 
@@ -373,7 +453,7 @@ MLFLOW_PORT=5001 make mlflow
 - A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
 - Os gaps de outros atributos permanecem sem tratamento.
 
-### 13.5 Métrica de Negócio
+### 16.5 Métrica de Negócio
 
 ```
 valor_liquido = TP x R$500 - (TP + FP) x R$50
@@ -386,6 +466,6 @@ valor_liquido = TP x R$500 - (TP + FP) x R$50
 **Resumo:**
 O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
-## 14. Contato
+## 17. Contato
 
 Grupo 4 - Tech Challenge FIAP

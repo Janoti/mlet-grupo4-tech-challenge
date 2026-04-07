@@ -120,10 +120,13 @@ Dados de produção → Pipeline sklearn (pré-processamento) → MLP PyTorch �
 → Tabela de priorização (CRM) → Campanha de retenção → Feedback de resultado
 ```
 
-**Alternativa real-time (opcional):**
-- Usar FastAPI + modelo serializado (`.pt` ou ONNX) para score individual via `/predict`
-- Adequada para integração com app mobile ou atendimento inbound
-- Requer monitoramento de latência (P99 < 200ms) e autoscaling
+**Alternativa real-time (implementada):**
+- FastAPI + pipeline sklearn serializado (`churn_pipeline.joblib`) via `/predict`
+- Schemas Pydantic validam entrada automaticamente (HTTP 422 para dados inválidos)
+- Retorna probabilidade, predição binária e faixa de risco (alto/medio/baixo)
+- Containerizado com Docker (Dockerfile + docker-compose)
+- Health check em `/health` para monitoramento de disponibilidade
+- Logging estruturado de cada inferência (timestamp, probabilidade, latência)
 
 ## 10. Plano de monitoramento
 
@@ -173,10 +176,19 @@ Dados de produção → Pipeline sklearn (pré-processamento) → MLP PyTorch �
 - Critério mínimo de fairness: definir com negócio e compliance antes de produção
 - Data da decisão: TBD
 
-## 13. Próximos passos
+## 13. Ferramentas de monitoramento implementadas
+
+- **`scripts/simulate_drift.py`**: Gera requisições com distribuição alterada para testar detecção de drift
+- **`scripts/check_drift.py`**: Analisa drift entre dados de treino e logs de produção
+- **`src/churn_prediction/monitoring.py`**: Módulo com KS test, Chi², PSI e InferenceLogger
+- **CI/CD** (`.github/workflows/ci_ml_pipeline.yml`): Pipeline automatizado com lint, testes, treino e build Docker
+
+## 14. Próximos passos
 
 1. Calibrar `V_RETIDO` e `C_ACAO` com negócio para decisão operacional realista.
 2. Consolidar threshold operacional da campanha (varredura 0.10–0.90 já implementada).
 3. Avaliar fairness do MLP por subgrupos sensíveis.
-4. Definir política de monitoramento de performance e fairness em produção.
-5. Evoluir arquitetura (tuning, explainability com SHAP/LIME).
+4. Implementar retreinamento automático via trigger de drift (Continuous Training).
+5. Adicionar autenticação JWT à API.
+6. Deploy em cloud com autoscaling.
+7. Evoluir arquitetura (tuning, explainability com SHAP/LIME).

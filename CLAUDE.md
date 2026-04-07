@@ -53,6 +53,19 @@ poetry run ruff check src scripts tests --fix
 
 # Tests
 poetry run pytest -q
+poetry run pytest tests/ -v             # verbose
+
+# API FastAPI
+poetry run python scripts/export_model.py                    # exporta pipeline treinado
+poetry run uvicorn churn_prediction.api.main:app --reload     # roda API local (porta 8000)
+
+# Docker
+docker compose up churn-api             # API containerizada (porta 8000)
+docker compose up mlflow                # MLflow UI containerizada (porta 5000)
+
+# Monitoramento de drift
+poetry run python scripts/simulate_drift.py --n-requests 100
+poetry run python scripts/check_drift.py
 ```
 
 ## Architecture
@@ -60,12 +73,15 @@ poetry run pytest -q
 ### Directory Layout
 
 - **notebooks/**: Sequential pipeline notebooks (01_eda → 02_baselines → 03_mlp_pytorch)
-- **scripts/**: Standalone automation — `generate_synthetic.py` (dataset creation), `analyze_mlruns.py` (MLflow metric consolidation), `logging_utils.py`
-- **src/churn_prediction/**: Reusable pipeline package (in development, referenced via `packages` in pyproject.toml)
+- **scripts/**: Standalone automation — `generate_synthetic.py`, `analyze_mlruns.py`, `export_model.py`, `simulate_drift.py`, `check_drift.py`
+- **src/churn_prediction/**: Pacote reutilizável com `config.py`, `data_cleaning.py`, `preprocessing.py`, `evaluation.py`, `model.py`, `monitoring.py`
+- **src/churn_prediction/api/**: FastAPI app (`main.py`, `schemas.py`) — endpoints `/predict`, `/health`
+- **src/churn_prediction/pipelines/**: Orquestração `prepare_data()` → `train_and_evaluate()`
 - **data/raw/**: Synthetic CSVs (tracked in git); **data/processed/**, **data/interim/**: derived artifacts (gitignored)
-- **models/**: Trained artifacts and MLflow model registry
+- **models/**: Trained artifacts (`churn_pipeline.joblib`) and MLflow model registry
 - **docs/**: ML Canvas, Model Card, EDA methodology, Phase 1 technical docs
-- **tests/**: pytest test files (test_smoke, test_schema, test_api — currently stubs)
+- **tests/**: 30 testes pytest (test_smoke, test_schema, test_api)
+- **.github/workflows/**: CI/CD pipeline (lint, testes, treino, Docker build)
 
 ### Key Technical Decisions
 
