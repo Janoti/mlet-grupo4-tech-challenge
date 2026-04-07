@@ -1,0 +1,108 @@
+name: CI Pipeline ML
+
+on:
+  push:
+    branches: [main, feat/*]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: Quality Assurance (lint + testes)
+  # -----------------------------------------------------------------------
+  quality:
+    name: Lint & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pip install poetry==1.8.*
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Lint (ruff)
+        run: poetry run ruff check src scripts tests
+
+      - name: Run tests
+        run: poetry run pytest tests/ -v --tb=short
+
+  # -----------------------------------------------------------------------
+  # Job 2: Training & Evaluation (apenas na main)
+  # -----------------------------------------------------------------------
+  train:
+    name: Train & Evaluate
+    needs: quality
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: pip install poetry==1.8.*
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Generate synthetic data
+        run: poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
+
+      - name: Export model pipeline
+        run: poetry run python scripts/export_model.py
+        env:
+          PYTHONPATH: src
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: churn-pipeline
+          path: models/churn_pipeline.joblib
+          retention-days: 30
+
+  # -----------------------------------------------------------------------
+  # Job 3: Build Docker image (validação)
+  # -----------------------------------------------------------------------
+  docker:
+    name: Docker Build
+    needs: quality
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create models dir (placeholder for build)
+        run: mkdir -p models && touch models/.gitkeep
+
+      - name: Build Docker image
+        run: docker build -t churn-prediction-api:ci .
+
+      - name: Verify image
+        run: docker images churn-prediction-api:ci
