@@ -3,6 +3,10 @@ services:
     build: .
     ports:
       - "8000:8000"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     environment:
       - CHURN_MODEL_PATH=/app/models/churn_pipeline.joblib
       - LOG_LEVEL=INFO
