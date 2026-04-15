@@ -147,4 +147,15 @@ Foi criado um `Makefile` com targets para padronizar a operacao:
 - Mitigacao de fairness em configuracao inicial (trade-off deve ser reavaliado periodicamente).
 - Pipeline ainda centrado em notebook (apesar de automatizado por Make).
 
+### 7.2 Evolucoes implementadas apos a Fase 1
 
+As seguintes evolucoes foram construidas sobre a base da Fase 1:
+
+1. **Pipeline reutilizavel** (`src/churn_prediction/`): logica dos notebooks refatorada em modulos Python testaveis — `config.py`, `data_cleaning.py`, `preprocessing.py`, `evaluation.py`, `model.py`, `pipelines/`.
+2. **API FastAPI** (`src/churn_prediction/api/`): endpoints `/predict` e `/health` com schemas Pydantic, logging estruturado e faixas de risco (alto/medio/baixo).
+3. **Containerizacao** (`Dockerfile`, `docker-compose.yml`): API e MLflow como servicos Docker com health check.
+4. **Testes automatizados** (`tests/`): 30 testes cobrindo imports, validacao de schemas, data cleaning e endpoints da API.
+5. **CI/CD** (`.github/workflows/ci_ml_pipeline.yml`): pipeline GitHub Actions com lint, testes, treinamento e build Docker.
+6. **Monitoramento de drift** (`src/churn_prediction/monitoring.py`): deteccao via KS test, Chi-Quadrado e PSI, com scripts de simulacao (`scripts/simulate_drift.py`) e analise (`scripts/check_drift.py`).
+
+Para instrucoes de uso detalhadas, consulte o `README.md` (secoes 12 a 14).

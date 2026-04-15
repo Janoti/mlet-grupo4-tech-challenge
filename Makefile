@@ -12,13 +12,15 @@ MLFLOW_PID ?= .tmp/mlflow.pid
 EDA_NOTEBOOK := notebooks/01_eda.ipynb
 BASELINE_NOTEBOOK := notebooks/02_baselines.ipynb
 MLP_NOTEBOOK      := notebooks/03_mlp_pytorch.ipynb
+DATA_FILE := data/raw/telecom_churn_base_extended.csv
 
-.PHONY: help install run-all notebooks notebooks-eda notebooks-baselines notebooks-mlp analyze mlflow mlflow-up mlflow-down mlflow-clean
+.PHONY: help install run-all notebooks notebooks-eda notebooks-baselines notebooks-mlp analyze mlflow mlflow-up mlflow-down mlflow-clean generate-data
 
 help:
 	@echo "Targets disponiveis:"
 	@echo "  make install             - instala dependencias com poetry"
-	@echo "  make run-all             - limpa runs, executa todos os notebooks, analisa e sobe MLflow"
+	@echo "  make generate-data       - gera arquivo de dados sinteticos se nao existir"
+	@echo "  make run-all             - limpa runs, gera dados, executa todos os notebooks, analisa e sobe MLflow"
 	@echo "  make notebooks           - executa 01_eda, 02_baselines e 03_mlp_pytorch em sequencia"
 	@echo "  make notebooks-eda       - executa somente 01_eda.ipynb"
 	@echo "  make notebooks-baselines - executa somente 02_baselines.ipynb"
@@ -34,8 +36,18 @@ install:
 	$(POETRY) install
 	@echo "[install] OK"
 
-run-all: mlflow-clean notebooks analyze mlflow-up
-	@echo "[run-all] Steps concluidos: clean -> notebooks -> analysis -> mlflow"
+generate-data:
+	@if [ ! -f "$(DATA_FILE)" ]; then \
+		echo "[generate-data] Arquivo nao encontrado: $(DATA_FILE)"; \
+		echo "[generate-data] Gerando dados sinteticos..."; \
+		$(POETRY) run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw; \
+		echo "[generate-data] OK"; \
+	else \
+		echo "[generate-data] Arquivo ja existe: $(DATA_FILE)"; \
+	fi
+
+run-all: mlflow-clean generate-data notebooks analyze mlflow-up
+	@echo "[run-all] Steps concluidos: clean -> generate-data -> notebooks -> analysis -> mlflow"
 	@echo "[run-all] Abra: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"
 
 notebooks: notebooks-eda notebooks-baselines notebooks-mlp

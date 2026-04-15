@@ -4,10 +4,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
 
 from logging_utils import get_logger, log_kv, setup_logging
-
 
 RUN_NAMES = [
     "dummy_stratified",
@@ -47,12 +45,12 @@ class RunData:
     run_id: str
     run_name: str
     start_time: int
-    params: Dict[str, str]
-    metrics: Dict[str, float]
+    params: dict[str, str]
+    metrics: dict[str, float]
 
 
-def parse_meta(meta_path: Path) -> Dict[str, str]:
-    data: Dict[str, str] = {}
+def parse_meta(meta_path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
     for line in meta_path.read_text(encoding="utf-8").splitlines():
         if ":" not in line:
             continue
@@ -61,14 +59,14 @@ def parse_meta(meta_path: Path) -> Dict[str, str]:
     return data
 
 
-def read_param(run_dir: Path, name: str) -> Optional[str]:
+def read_param(run_dir: Path, name: str) -> str | None:
     p = run_dir / "params" / name
     if p.exists():
         return p.read_text(encoding="utf-8").strip()
     return None
 
 
-def read_metric(run_dir: Path, name: str) -> Optional[float]:
+def read_metric(run_dir: Path, name: str) -> float | None:
     p = run_dir / "metrics" / name
     if not p.exists():
         return None
@@ -84,8 +82,8 @@ def read_metric(run_dir: Path, name: str) -> Optional[float]:
         return None
 
 
-def collect_runs(mlruns_root: Path) -> Dict[str, RunData]:
-    latest_by_name: Dict[str, RunData] = {}
+def collect_runs(mlruns_root: Path) -> dict[str, RunData]:
+    latest_by_name: dict[str, RunData] = {}
 
     for exp_dir in mlruns_root.iterdir():
         if not exp_dir.is_dir() or exp_dir.name in {"models", ".trash"}:
@@ -107,7 +105,7 @@ def collect_runs(mlruns_root: Path) -> Dict[str, RunData]:
             except ValueError:
                 start_time = 0
 
-            params: Dict[str, str] = {}
+            params: dict[str, str] = {}
             for p in [
                 "model",
                 "base_model",
@@ -122,7 +120,7 @@ def collect_runs(mlruns_root: Path) -> Dict[str, RunData]:
                 if v is not None:
                     params[p] = v
 
-            metrics: Dict[str, float] = {}
+            metrics: dict[str, float] = {}
             for m in METRICS:
                 v = read_metric(run_dir, m)
                 if v is not None:
@@ -136,13 +134,13 @@ def collect_runs(mlruns_root: Path) -> Dict[str, RunData]:
     return latest_by_name
 
 
-def fmt(x: Optional[float], digits: int = 4) -> str:
+def fmt(x: float | None, digits: int = 4) -> str:
     if x is None:
         return "n/a"
     return f"{x:.{digits}f}"
 
 
-def fmt_intlike(x: Optional[float]) -> str:
+def fmt_intlike(x: float | None) -> str:
     if x is None:
         return "n/a"
     return str(int(round(x)))
