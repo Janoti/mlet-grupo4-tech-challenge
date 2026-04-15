@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 from logging_utils import get_logger, log_kv, setup_logging
-
 
 logger = get_logger("generate_dataset")
 

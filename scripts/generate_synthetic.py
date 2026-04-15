@@ -14,15 +14,15 @@ Saída:
 """
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
 import importlib
 import json
+import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
-import logging
 
 if importlib.util.find_spec("structlog") is not None:
     structlog = importlib.import_module("structlog")
