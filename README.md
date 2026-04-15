@@ -27,7 +27,7 @@ Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, 
 
 - `01_eda.ipynb`: Exploração e análise dos dados
 - `02_baselines.ipynb`: Baselines lineares e de árvore (`Dummy`, `LogReg`, `RandomForest`, `GradientBoosting`), fairness, métricas de negócio, MLflow; exporta splits
-- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, comparação vs. todos os baselines, análise de custo por threshold e MLflow
+- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, Feature Importance via RF e GB, comparação vs. todos os baselines (lineares + árvores + MLP), análise de custo por threshold e MLflow; resolução dinâmica de paths (compatível com VS Code, Jupyter e `make`)
 
 ## 3. Dataset principal
 
@@ -550,6 +550,42 @@ valor_liquido = TP x R$500 - (TP + FP) x R$50
 **Resumo:**
 O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
-## 17. Contato
+## 14. Resultados do MLP e Comparação Completa
+
+### 14.1 Desempenho comparativo (todos os modelos)
+
+| Modelo               | Accuracy | F1     | ROC-AUC | PR-AUC | Valor Líquido    |
+|----------------------|----------|--------|---------|--------|------------------|
+| `dummy_stratified`   | 0.5294   | 0.3937 | 0.5046  | 0.3959 | R$ 561.850       |
+| `random_forest`      | 0.7950   | 0.7154 | 0.8609  | 0.8225 | R$ 1.103.750     |
+| `log_reg`            | 0.8069   | 0.7425 | 0.8783  | 0.8480 | R$ 1.190.800     |
+| `gradient_boosting`  | 0.8137   | 0.7474 | 0.8815  | 0.8541 | R$ 1.183.300     |
+| **`mlp_pytorch`**    | 0.8067   | 0.7427 | 0.8772  | 0.8464 | **R$ 1.192.700** |
+
+**Interpretação:**
+- O MLP supera todos os modelos em **valor líquido** (+R$ 9.400 vs. GradientBoosting), com performance técnica comparável.
+- ROC-AUC e F1 do MLP ficam apenas 0.004 abaixo do GradientBoosting — diferença não significativa considerando o ganho operacional.
+- O MLP confirma a robustez do pipeline: mesmo sem tuning extenso, atinge resultado competitivo.
+
+### 14.2 Feature Importance (RF e Gradient Boosting)
+
+Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
+
+| Feature                        | Importância RF | Importância GB |
+|-------------------------------|----------------|----------------|
+| `nps_detractor_flag`          | 0.0976         | 0.1951         |
+| `late_payments_6m`            | 0.0595         | 0.2152         |
+| `cat__nps_category_detractor` | 0.0801         | 0.0901         |
+| `invoice_shock_flag`          | 0.0536         | 0.0872         |
+| `plan_price`                  | 0.0356         | 0.1033         |
+| `price_increase_last_3m`      | 0.0518         | 0.0258         |
+| `nps_promoter_flag`           | 0.0426         | 0.0331         |
+
+**Interpretação:**
+- Satisfação (`nps_detractor_flag`) e inadimplência (`late_payments_6m`) são os sinais mais fortes de churn.
+- Choques financeiros (`invoice_shock_flag`, `price_increase_last_3m`) e preço do plano também influenciam significativamente.
+- Essas features devem ser priorizadas em regras de negócio e campanhas de retenção.
+
+## 15. Contato
 
 Grupo 4 - Tech Challenge FIAP

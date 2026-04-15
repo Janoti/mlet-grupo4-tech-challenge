@@ -39,6 +39,9 @@ env/
 
 # Experiment tracking artifacts
 mlruns/
+
+# Logs de testes locais
+logs/
 !data/raw/telecom_churn_base.csv
 
 .claude/
