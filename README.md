@@ -1,115 +1,153 @@
-# Predição de Churn em Telecom - Tech Challenge (Grupo 4)
+# Predição de Churn em Telecom — Tech Challenge Grupo 4
 
-Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, automação, rastreabilidade e foco em métricas de negócio.
+Pipeline completo de Machine Learning para prever churn em telecom: do dado bruto ao modelo servido via API, com rastreabilidade, testes automatizados e monitoramento de drift.
 
-## Status atual
+---
 
-- EDA executável e documentada
-- Baselines: `DummyClassifier`, `LogisticRegression`, `RandomForest`, `GradientBoosting` com fairness (Fairlearn)
-- Pipeline MLP em PyTorch com rastreabilidade no MLflow
-- Métricas de negócio integradas (clientes abordados, valor líquido, ROI)
-- Automação fim a fim via Makefile (`run-all`, `analyze`, `mlflow-up/down`)
-- **Pipeline reutilizável** em `src/churn_prediction/` (refatorado dos notebooks)
-- **API FastAPI** com endpoints `/predict` e `/health` (Pydantic schemas)
-- **Dockerfile + docker-compose** para deploy containerizado
-- **Testes automatizados** (30 testes: smoke, schema, API)
-- **CI/CD** com GitHub Actions (lint, testes, treinamento, build Docker)
-- **Monitoramento de drift** (KS test, Chi², PSI) com simulação
-- Documentação técnica e de negócio atualizada
+## Índice
 
-## 1. Objetivo
+1. [Visão geral](#1-visão-geral)
+2. [Arquitetura do projeto](#2-arquitetura-do-projeto)
+3. [Estrutura de arquivos](#3-estrutura-de-arquivos)
+4. [Setup do ambiente](#4-setup-do-ambiente)
+5. [Fluxo completo: do treino à API](#5-fluxo-completo-do-treino-à-api)
+6. [Executando os notebooks](#6-executando-os-notebooks)
+7. [Exportando o modelo para a API](#7-exportando-o-modelo-para-a-api)
+8. [API de inferência (FastAPI)](#8-api-de-inferência-fastapi)
+9. [Docker](#9-docker)
+10. [MLflow — rastreamento de experimentos](#10-mlflow--rastreamento-de-experimentos)
+11. [Testes automatizados](#11-testes-automatizados)
+12. [Qualidade de código (ruff)](#12-qualidade-de-código-ruff)
+13. [Monitoramento de drift](#13-monitoramento-de-drift)
+14. [CI/CD](#14-cicd)
+15. [Resultados](#15-resultados)
+16. [Documentação complementar](#16-documentação-complementar)
 
-- Estimar a probabilidade de churn por cliente
-- Priorizar campanhas de retenção com base em risco e valor
-- Medir impacto com métricas técnicas (AUC-ROC, PR-AUC, F1) e de negócio (churn evitado, valor líquido, ROI)
+---
 
-## 2. Pipeline e notebooks
+## 1. Visão geral
 
-- `01_eda.ipynb`: Exploração e análise dos dados
-- `02_baselines.ipynb`: Baselines lineares e de árvore (`Dummy`, `LogReg`, `RandomForest`, `GradientBoosting`), fairness, métricas de negócio, MLflow; exporta splits
-- `03_mlp_pytorch.ipynb`: MLP em PyTorch com BatchNorm, Dropout, early stopping, batching, Feature Importance via RF e GB, comparação vs. todos os baselines (lineares + árvores + MLP), análise de custo por threshold e MLflow; resolução dinâmica de paths (compatível com VS Code, Jupyter e `make`)
+Uma operadora de telecomunicações precisa identificar clientes com risco de cancelamento para acionar campanhas de retenção proativas. Este projeto constrói um pipeline end-to-end:
 
-## 3. Dataset principal
+- **EDA** completa sobre base sintética de 50.000 clientes
+- **Baselines** com Scikit-Learn: Dummy, LogisticRegression, RandomForest, GradientBoosting
+- **Rede neural MLP** em PyTorch com early stopping, mini-batches e otimização de threshold
+- **API FastAPI** para inferência em tempo real
+- **MLflow** para rastrear experimentos, parâmetros e métricas
+- **Docker** para containerização da API
+- **Monitoramento de drift** com KS test, Chi² e PSI
 
-Base: `data/raw/telecom_churn_base_extended.csv`
+### Modelos e resultados (resumo)
 
-O dataset é sintético, com problemas controlados de qualidade (duplicidades, missing, inconsistências) para simular um cenário realista. Inclui variáveis de perfil, uso, financeiro, atendimento e satisfação.
+| Modelo | ROC-AUC | F1 | Valor Líquido |
+|---|---|---|---|
+| Dummy (stratified) | 0.505 | 0.394 | R$ 561.850 |
+| LogisticRegression | 0.878 | 0.743 | R$ 1.190.800 |
+| RandomForest | 0.861 | 0.715 | R$ 1.103.750 |
+| GradientBoosting | 0.882 | 0.747 | R$ 1.183.300 |
+| **MLP PyTorch** | **0.877** | **0.743** | **R$ 1.192.700** |
 
-Colunas-chave de saída:
+> Fórmula de negócio: `valor_liquido = TP × R$500 − (TP + FP) × R$50`
 
-- `churn` (target binário)
+---
 
-Importante:
+## 2. Arquitetura do projeto
 
-- `churn` é a variável alvo usada nos baselines.
+```
+Dataset (CSV)
+     │
+     ▼
+notebooks/01_eda.ipynb          ← Análise exploratória
+     │
+     ▼
+notebooks/02_baselines.ipynb    ← Treina Dummy, LogReg, RF, GB → MLflow
+     │  └─ exporta splits preprocessados → data/processed/
+     ▼
+notebooks/03_mlp_pytorch.ipynb  ← Treina MLP → MLflow
+     │
+     ▼
+scripts/export_model.py         ← Serializa pipeline → models/churn_pipeline.joblib
+     │
+     ▼
+src/churn_prediction/api/       ← FastAPI carrega o .joblib
+     │
+     ▼
+Docker (churn-api:8000)         ← API containerizada para produção
+     │
+     ▼
+scripts/simulate_drift.py       ← Simula requisições com drift
+scripts/check_drift.py          ← Detecta drift (KS, PSI)
+```
 
-## 4. Estrutura do repositório
+**Notebooks vs. `src/`:**
+- Os notebooks são o ambiente de experimentação e treinamento (MLflow, visualizações, análises)
+- O `src/churn_prediction/` contém o código modularizado e reutilizável que a API e os testes consomem
+- O `export_model.py` é a ponte: serializa o pipeline treinado nos notebooks para que a API use
+
+---
+
+## 3. Estrutura de arquivos
 
 ```text
 mlet-grupo4-tech-challenge/
 ├── .github/workflows/
-│   └── ci_ml_pipeline.yml       # CI/CD: lint, testes, treino, Docker
+│   └── ci_ml_pipeline.yml        # CI/CD: lint → testes → treino → Docker
 ├── data/
-│   ├── raw/                     # CSVs brutos (sintéticos)
-│   ├── interim/                 # Artefatos intermediários
-│   └── processed/               # Splits processados
+│   ├── raw/                      # CSVs brutos (gerados por scripts/generate_synthetic.py)
+│   ├── interim/                  # Artefatos intermediários
+│   └── processed/                # Splits pré-processados (gerados pelo notebook 02)
 ├── docs/
-│   ├── ml_canvas.md
-│   ├── model_card.md
-│   ├── eda_metodologia.md
-│   └── fase1_doc_tecnica.md
+│   ├── ml_canvas.md              # ML Canvas (padrão Dorard)
+│   ├── model_card.md             # Model Card (padrão Google Mitchell et al.)
+│   ├── eda_metodologia.md        # Metodologia da EDA
+│   ├── baseline_metodologia.md   # Metodologia dos baselines
+│   └── fase1_doc_tecnica.md      # Documento técnico consolidado
+├── models/
+│   └── churn_pipeline.joblib     # Pipeline serializado (gerado por export_model.py)
 ├── notebooks/
-│   ├── 01_eda.ipynb
-│   ├── 02_baselines.ipynb
-│   └── 03_mlp_pytorch.ipynb
+│   ├── 01_eda.ipynb              # EDA: volume, qualidade, distribuição, correlações
+│   ├── 02_baselines.ipynb        # Baselines + fairness + MLflow + export splits
+│   └── 03_mlp_pytorch.ipynb      # MLP PyTorch + early stopping + trade-off custo
 ├── scripts/
-│   ├── analyze_mlruns.py        # Análise de runs MLflow
-│   ├── export_model.py          # Exporta pipeline para API
-│   ├── simulate_drift.py        # Simula data drift na API
-│   ├── check_drift.py           # Analisa drift treino vs produção
-│   ├── generate_synthetic.py    # Gera dataset sintético
-│   └── logging_utils.py
+│   ├── analyze_mlruns.py         # Lê MLflow e imprime resumo de todos os modelos
+│   ├── export_model.py           # Treina pipeline sklearn e salva .joblib para a API
+│   ├── simulate_drift.py         # Envia requisições com distribuição alterada à API
+│   ├── check_drift.py            # Compara treino vs produção (KS, Chi², PSI)
+│   ├── generate_synthetic.py     # Gera dataset sintético estendido
+│   ├── generate_dataset.py       # Gera dataset simplificado (legado)
+│   └── logging_utils.py          # Logger padronizado para scripts
 ├── src/churn_prediction/
-│   ├── config.py                # Constantes e hiperparâmetros
-│   ├── data_cleaning.py         # Limpeza de dados
-│   ├── preprocessing.py         # Pipeline sklearn (imputer+scaler+OHE)
-│   ├── evaluation.py            # Métricas técnicas e de negócio
-│   ├── model.py                 # MLP PyTorch
-│   ├── monitoring.py            # Drift detection (KS, Chi², PSI)
+│   ├── config.py                 # Constantes: LEAKAGE_COLS, V_RETIDO, C_ACAO, seeds
+│   ├── data_cleaning.py          # Limpeza: duplicados, clip, padronização, age_group
+│   ├── preprocessing.py          # Pipeline sklearn: imputer + scaler + OHE
+│   ├── evaluation.py             # Métricas técnicas (ROC-AUC, F1, PR-AUC) e de negócio
+│   ├── model.py                  # Classe MLP PyTorch (BatchNorm, Dropout)
+│   ├── monitoring.py             # Drift detection: KS test, Chi², PSI, InferenceLogger
 │   ├── api/
-│   │   ├── main.py              # FastAPI app (/predict, /health)
-│   │   └── schemas.py           # Pydantic schemas
+│   │   ├── main.py               # FastAPI: /predict, /health, /
+│   │   └── schemas.py            # Pydantic schemas: CustomerFeatures, PredictionResponse
 │   └── pipelines/
-│       └── __init__.py          # Orquestração prepare_data → train
+│       └── __init__.py           # Orquestração: prepare_data() → train_and_evaluate()
 ├── tests/
-│   ├── test_smoke.py            # Imports dos módulos
-│   ├── test_schema.py           # Validação Pydantic + data cleaning
-│   └── test_api.py              # Endpoints com mocks
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
-└── README.md
+│   ├── test_smoke.py             # Smoke tests: imports de todos os módulos src/
+│   ├── test_schema.py            # Testes de schema Pydantic + data cleaning + evaluation
+│   └── test_api.py               # Testes de integração: /health, /predict, /
+├── Dockerfile                    # Imagem Docker da API
+├── docker-compose.yml            # Serviços: churn-api + mlflow
+├── Makefile                      # Automação: run-all, test, lint, mlflow, docker
+└── pyproject.toml                # Dependências, linting (ruff), pytest — single source of truth
 ```
 
-## 5. Automação e rastreabilidade
+---
 
-- **Makefile**: targets para rodar EDA, baselines, MLP, análise e MLflow
-- **MLflow**: rastreia experimentos, parâmetros, métricas técnicas e de negócio
+## 4. Setup do ambiente
 
-## 6. Ambiente e instalacao
-
-Pre-requisitos:
-
+**Pré-requisitos:**
 - Python 3.11+ (recomendado 3.12)
-- Poetry
-- Docker Desktop (para containerizacao — opcional para desenvolvimento local)
+- [Poetry](https://python-poetry.org/docs/#installation)
+- Docker Desktop (opcional, para containerização)
 
-Dependencias-chave para a etapa de fairness:
-
-- `scikit-learn >=1.5,<1.6`
-- `fairlearn ^0.11.0`
-
-Instalacao:
+**Instalação:**
 
 ```bash
 git clone https://github.com/Janoti/mlet-grupo4-tech-challenge.git
@@ -117,475 +155,454 @@ cd mlet-grupo4-tech-challenge
 poetry install
 ```
 
-Opcional com Makefile:
-
-```bash
-make install
-```
-
-## 6.1 Atalhos com Makefile
-
-Comandos para executar notebooks e iniciar MLflow com logs de progresso no terminal:
-
-```bash
-make help
-make run-all
-make notebooks
-make notebooks-eda
-make notebooks-baselines
-make notebooks-mlp
-make analyze
-make mlflow
-make mlflow-up
-make mlflow-down
-make mlflow-clean
-```
-
-Execucao recomendada (fim a fim):
-
-```bash
-make install
-make run-all
-```
-
-O `make run-all` executa estes steps automaticamente:
-
-1. Limpa `mlruns/`.
-2. Executa `notebooks/01_eda.ipynb`.
-3. Executa `notebooks/02_baselines.ipynb` (exporta splits preprocessados para `data/processed/`).
-4. Executa `notebooks/03_mlp_pytorch.ipynb` (MLP com early stopping, métricas e MLflow).
-5. Le os runs em `mlruns/` e imprime analise resumida (baselines + MLP).
-6. Sobe MLflow em background e mostra o link.
-
-Saidas esperadas no terminal:
-
-- `make notebooks`:
-	- `[notebooks-eda] Iniciando execucao de notebooks/01_eda.ipynb...`
-	- `[notebooks-eda] Concluido.`
-	- `[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...`
-	- `[notebooks-baselines] Concluido.`
-	- `[notebooks-mlp] Iniciando execucao de notebooks/03_mlp_pytorch.ipynb...`
-	- `[notebooks-mlp] Concluido.`
-	- `[notebooks] Execucao completa finalizada.`
-- `make analyze`:
-	- `[analysis] Resumo automatico da run`
-	- metricas de `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`
-	- deltas de performance e leitura sugerida para apresentacao
-	- resumo da metrica de negocio (`tp`, `fp`, `clientes_abordados`, `valor_liquido`, `valor_por_cliente`)
-	- aviso quando algum run esperado ainda nao existe no `mlruns/`
-- `make mlflow`:
-	- `[mlflow] Subindo MLflow UI em http://127.0.0.1:5000`
-- `make mlflow-up`:
-	- `[mlflow] PID: ...`
-	- `[mlflow] Link: http://127.0.0.1:5000`
-
-Observacao:
-
-- A execucao dos notebooks usa `nbconvert --execute --inplace`, entao as celulas ficam com outputs salvos no proprio arquivo `.ipynb`.
-- Para reduzir warnings de IOPub no `nbconvert`, o Makefile usa timeout maior e nivel de log configuravel (`IOPUB_TIMEOUT` e `NB_LOG_LEVEL`).
-
-Padrao de logs dos scripts Python:
-
-- Os scripts usam logging padronizado com formato unico (`timestamp | level | logger | mensagem`).
-- Para controlar verbosidade, use a variavel `LOG_LEVEL` (ex.: `LOG_LEVEL=DEBUG make analyze`).
-- Scripts com logging padronizado nesta branch: `scripts/generate_dataset.py` e `scripts/analyze_mlruns.py`.
-
-## 7. Geracao dos dados
-
-### Base estendida (recomendada)
-
-```bash
-poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
-```
-
-O script da base estendida agora simula problemas de qualidade de dados. Por padrao, ele injeta:
-
-- duplicidade de linhas
-- duplicidade de identificadores
-- missing adicional em colunas selecionadas
-- valores fora de faixa e categorias invalidas
-
-Exemplo com parametrizacao explicita:
-
-```bash
-poetry run python scripts/generate_synthetic.py \
-	--n-rows 50000 \
-	--seed 42 \
-	--out-dir data/raw \
-	--duplicate-row-rate 0.03 \
-	--duplicate-id-rate 0.02 \
-	--missing-noise-rate 0.01 \
-	--invalid-value-rate 0.01
-```
-
-Arquivo gerado:
-
-- `data/raw/telecom_churn_base_extended.csv`
-
-### Base simplificada (legado)
-
-```bash
-poetry run python scripts/generate_dataset.py --n-rows 50000 --seed 42 --out-dir data/raw
-```
-
-Arquivo gerado:
-
-- `data/raw/telecom_churn_base.csv`
-
-## 8. Fluxo recomendado
-
-1. Gerar/validar dataset em `data/raw`.
-2. Executar exploracao e diagnostico em `notebooks/01_eda.ipynb`. O EDA inclui analise de correlacao entre features numericas: foram identificados **14 pares com |r| > 0.7**, sendo os mais criticos:
-	- `price_increase_last_3m` ↔ `invoice_shock_flag` (r = 0.99)
-	- `avg_bill_last_6m` ↔ `monthly_charges` (r = 0.97)
-	- `data_gb_monthly` ↔ `avg_usage_last_3m` (r = 0.97)
-	- `late_payments_6m` ↔ `default_flag` (r = 0.92)
-
-	Pares com |r| > 0.9 representam informacao redundante e devem ser consolidados, especialmente para modelos sensiveis a multicolinearidade como a regressao logistica.
-3. No proprio EDA da Fase 1, aplicar tratamento minimo para baseline:
-	- remocao de duplicados
-	- correcao de valores invalidos
-	- imputacao simples
-	- one-hot encoding das categoricas
-4. Separar os dados em treino e teste com split estratificado `80/20`.
-5. Treinar baselines com `DummyClassifier` e `LogisticRegression` no notebook `notebooks/02_baselines.ipynb`.
-6. Tunar hiperparametros com `GridSearchCV` (5-fold estratificado) variando `C` em [0.001, 0.01, 0.1, 1, 10, 100] e comparar penalidades L1, L2 e ElasticNet. Melhor configuracao encontrada: `C=0.1` com L2 (diferenca entre penalidades < 0.0002 em ROC-AUC).
-7. Otimizar threshold de classificacao por metrica de negocio (valor liquido da campanha de retencao), varrendo thresholds de 0.10 a 0.90.
-8. Registrar experimentos no MLflow (parametros, metricas e versao do dataset).
-9. Avaliar fairness por subgrupos com Fairlearn (`gender`, `age_group`, `region` e `plan_type`).
-10. Aplicar mitigacao opcional com `EqualizedOdds` e comparar trade-offs (a versao atual do notebook usa configuracao otimizada para tempo de execucao).
-11. Consolidar resultados em `docs/model_card.md`.
-12. Revisar premissas de negocio (`V_RETIDO`, `C_ACAO`) com stakeholders para calibrar decisao operacional.
-
-Tratamento adotado na Fase 1:
-
-- Numericas: imputacao por mediana.
-- Categoricas: imputacao por moda.
-- Categoricas finais: transformacao com one-hot encoding.
-- Exclusoes por leakage: `customer_id`, `churn_probability`, `retention_offer_made`, `retention_offer_accepted`, `contract_renewal_date`, `loyalty_end_date`.
-
-Split adotado:
-
-- Treino: `80%`
-- Teste: `20%`
-- Estratificacao pelo target `churn`
-
-Fairness e rastreabilidade:
-
-- Diagnostico inicial no EDA por subgrupos sensiveis.
-- Avaliacao no baseline com Fairlearn (`demographic_parity_difference`, `equalized_odds_difference`).
-- Mitigacao de referencia com `ExponentiatedGradient` + `EqualizedOdds`.
-- Registro no MLflow com versao do dataset baseada em hash (`dataset_version`).
-
-Metrica de negocio (status atual):
-
-- Ja registrada automaticamente no MLflow para `dummy_stratified`, `log_reg` e `log_reg_mitigated_equalized_odds`.
-- Formula operacionalizada no notebook:
-	- `valor_liquido = TP * V_RETIDO - (TP + FP) * C_ACAO`
-	- `valor_por_cliente = valor_liquido / N`
-- Campos consolidados e analisados em `make analyze`:
-	- `tp`, `fp`, `clientes_abordados`, `valor_bruto`, `custo_total_acao`, `valor_liquido`, `valor_por_cliente`
-
-## 9. Qualidade de codigo
-
-Lint:
-
-```bash
-poetry run ruff check src scripts tests
-```
-
-Auto-fix:
-
-```bash
-poetry run ruff check src scripts tests --fix
-```
-
-Testes:
-
-```bash
-poetry run pytest -q                              # resumido
-poetry run pytest tests/ -v                       # verbose (todos)
-poetry run pytest tests/test_api.py -v            # apenas testes da API
-poetry run pytest tests/test_schema.py::TestDataCleaning -v  # classe especifica
-```
-
-## 10. MLflow (opcional local)
-
-```bash
-poetry run mlflow ui --backend-store-uri ./mlruns
-```
-
 Ou via Makefile:
 
 ```bash
-make mlflow
+make install
 ```
 
-Abrir em http://127.0.0.1:5000
-
-Se a porta 5000 estiver em uso, rode em outra porta:
+**Gerar o dataset sintético** (se `data/raw/telecom_churn_base_extended.csv` não existir):
 
 ```bash
-MLFLOW_PORT=5001 make mlflow
-```
-
-## 11. Documentacao
-
-- Canvas de negocio e modelagem: `docs/ml_canvas.md`
-- Explicacao da EDA e das escolhas metodologicas: `docs/eda_metodologia.md`
-- Documento tecnico consolidado da Fase 1 (EDA + baseline + automacao): `docs/fase1_doc_tecnica.md`
-- Card do modelo: `docs/model_card.md`
-
-## 12. API de inferência (FastAPI)
-
-A API expõe o modelo treinado para predições em tempo real.
-
-### 12.1 Passo a passo para rodar localmente
-
-```bash
-# 1. Gerar dados (se ainda não existem)
 poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
+```
 
-# 2. Exportar pipeline treinado (salva em models/churn_pipeline.joblib)
+O `make run-all` faz isso automaticamente se o arquivo não existir.
+
+---
+
+## 5. Fluxo completo: do treino à API
+
+Este é o caminho completo do zero à API rodando:
+
+```bash
+# Passo 1: instalar dependências
+make install
+
+# Passo 2: treinar todos os modelos (EDA + baselines + MLP → MLflow)
+make run-all
+
+# Passo 3: exportar o pipeline treinado para a API
 PYTHONPATH=src poetry run python scripts/export_model.py
+# → gera: models/churn_pipeline.joblib
 
-# 3. Rodar a API (porta 8000)
+# Passo 4a: rodar a API localmente
 PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload --port 8000
 
-# 4. Acessar documentação interativa
-#    Swagger UI: http://localhost:8000/docs
-#    ReDoc:      http://localhost:8000/redoc
-```
-
-### 12.2 Passo a passo via Docker
-
-```bash
-# 1. Exportar modelo (necessário antes do build)
-PYTHONPATH=src poetry run python scripts/export_model.py
-
-# 2. Build e start do container
+# Passo 4b: OU rodar via Docker
 docker compose up --build churn-api
 
-# A API fica disponível em http://localhost:8000
-```
-
-### 12.3 Testar a API
-
-```bash
-# Health check
+# Passo 5: verificar se o modelo foi carregado
 curl http://localhost:8000/health
+# esperado: {"status":"ok","model_loaded":true,"model_version":"churn_pipeline"}
 
-# Predição de churn
+# Passo 6: fazer uma predição
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"age": 45, "gender": "female", "plan_type": "pos", "monthly_charges": 120, "nps_score": 3}'
+  -d '{"age": 45, "gender": "male", "monthly_charges": 120, "nps_score": 3}'
+```
+
+> **Atenção:** se o `/health` retornar `"model_loaded": false`, o arquivo `models/churn_pipeline.joblib` não foi gerado. Rode o Passo 3 antes de subir a API.
+
+---
+
+## 6. Executando os notebooks
+
+### Todos de uma vez (recomendado)
+
+```bash
+make run-all
+```
+
+Executa em sequência: gera dados → EDA → baselines → MLP → análise → sobe MLflow.
+
+### Individualmente
+
+```bash
+make notebooks-eda        # executa notebooks/01_eda.ipynb
+make notebooks-baselines  # executa notebooks/02_baselines.ipynb
+make notebooks-mlp        # executa notebooks/03_mlp_pytorch.ipynb
+make analyze              # lê MLflow e imprime resumo comparativo
+```
+
+### O que cada notebook faz
+
+**`01_eda.ipynb`** — Análise exploratória:
+- Volume, qualidade, missing, outliers
+- Distribuições e correlações (14 pares com |r| > 0.7 identificados)
+- Data readiness e diagnóstico de leakage
+
+**`02_baselines.ipynb`** — Baselines e fairness:
+- Treina: `DummyClassifier`, `LogisticRegression` (GridSearchCV), `RandomForest`, `GradientBoosting`
+- Pipeline sklearn completo: limpeza → imputação → scaling → OHE
+- Avalia fairness por `gender`, `age_group`, `region`, `plan_type` (Fairlearn)
+- Mitigação com `ExponentiatedGradient` + `EqualizedOdds`
+- Registra tudo no MLflow (`churn-baselines`)
+- **Exporta splits pré-processados** para `data/processed/` (usado pelo notebook 03)
+
+**`03_mlp_pytorch.ipynb`** — MLP PyTorch:
+- Arquitetura: `input → 128 → 64 → 1` com BatchNorm e Dropout=0.3
+- Loss: `BCEWithLogitsLoss`, otimizador: `Adam`
+- Treinamento com mini-batches (BATCH_SIZE=512) e early stopping (patience=10)
+- `ReduceLROnPlateau` para ajuste dinâmico da taxa de aprendizado
+- Seeds globais fixadas: `random=42`, `numpy=42`, `torch=42`
+- Comparação dinâmica com todos os baselines via MLflow
+- Varredura de threshold (0.10–0.90) para maximização de valor líquido
+- Feature Importance via RF e GB
+- Registra no MLflow (`churn-mlp-pytorch`) incluindo `mlflow.pytorch.log_model`
+
+### Saída esperada no terminal
+
+```
+[notebooks-eda] Iniciando execucao de notebooks/01_eda.ipynb...
+[notebooks-eda] Concluido.
+[notebooks-baselines] Iniciando execucao de notebooks/02_baselines.ipynb...
+[notebooks-baselines] Concluido.
+[notebooks-mlp] Iniciando execucao de notebooks/03_mlp_pytorch.ipynb...
+[notebooks-mlp] Concluido.
+[analysis] Resumo automatico da run...
+  dummy_stratified  | roc_auc=0.505 | f1=0.394 | valor_liquido=561850
+  log_reg           | roc_auc=0.878 | f1=0.743 | valor_liquido=1190800
+  random_forest     | roc_auc=0.861 | f1=0.715 | valor_liquido=1103750
+  gradient_boosting | roc_auc=0.882 | f1=0.747 | valor_liquido=1183300
+  mlp_pytorch_v1    | roc_auc=0.877 | f1=0.743 | valor_liquido=1192700
+```
+
+---
+
+## 7. Exportando o modelo para a API
+
+Após o `make run-all`, o pipeline treinado precisa ser serializado para que a API use:
+
+```bash
+PYTHONPATH=src poetry run python scripts/export_model.py
+```
+
+O script `scripts/export_model.py`:
+1. Carrega os dados brutos
+2. Aplica o pipeline de limpeza e pré-processamento (`src/churn_prediction/`)
+3. Treina a `LogisticRegression` (modelo de referência para produção)
+4. Serializa com `joblib.dump` em `models/churn_pipeline.joblib`
+
+> O modelo exportado é o `LogisticRegression` por ser o melhor equilíbrio entre performance, interpretabilidade e simplicidade operacional. Para trocar para outro modelo, edite `scripts/export_model.py`.
+
+---
+
+## 8. API de inferência (FastAPI)
+
+### Endpoints
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `GET` | `/` | Informações gerais da API |
+| `GET` | `/health` | Status da API e do modelo carregado |
+| `POST` | `/predict` | Predição de churn para um cliente |
+| `GET` | `/docs` | Swagger UI (documentação interativa) |
+| `GET` | `/redoc` | ReDoc |
+
+### Rodar localmente (sem Docker)
+
+```bash
+# Pré-requisito: models/churn_pipeline.joblib deve existir (seção 7)
+PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload --port 8000
+```
+
+### Testar os endpoints
+
+```bash
+# Verificar se o modelo foi carregado
+curl http://localhost:8000/health
 ```
 
 Resposta esperada:
+```json
+{"status": "ok", "model_loaded": true, "model_version": "churn_pipeline"}
+```
 
+Se `model_loaded` for `false`, rode `scripts/export_model.py` (seção 7) e reinicie.
+
+```bash
+# Predição de churn
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 45,
+    "gender": "male",
+    "region": "Sudeste",
+    "plan_type": "pos",
+    "monthly_charges": 120.0,
+    "nps_score": 3,
+    "support_calls_30d": 5,
+    "late_payments_6m": 2,
+    "months_to_contract_end": 1
+  }'
+```
+
+Resposta esperada:
 ```json
 {
-  "churn_probability": 0.6823,
+  "churn_probability": 0.7234,
   "churn_prediction": 1,
-  "risk_level": "medio",
+  "risk_level": "alto",
   "model_version": "churn_pipeline"
 }
 ```
 
-### 12.4 Endpoints
+### Campos de entrada (`/predict`)
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| `GET` | `/` | Informações gerais da API |
-| `GET` | `/health` | Status da API e do modelo carregado |
-| `POST` | `/predict` | Predição de churn (probabilidade, classe, risco) |
-| `GET` | `/docs` | Swagger UI (documentação interativa) |
-| `GET` | `/redoc` | ReDoc (documentação formatada) |
+Todos os campos são **opcionais** — o pipeline imputa valores ausentes automaticamente com mediana/moda, exatamente como no treinamento.
 
-Observações:
-- Todos os campos de entrada são opcionais (o pipeline imputa valores ausentes)
-- Campos inválidos retornam HTTP 422 com detalhes do erro (validação Pydantic)
-- A variável `CHURN_MODEL_PATH` permite apontar para outro modelo serializado
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `age` | int (18–100) | Idade do cliente |
+| `gender` | string | `male` / `female` |
+| `region` | string | Região geográfica |
+| `plan_type` | string | `pre` / `pos` / `controle` |
+| `monthly_charges` | float | Valor mensal do plano |
+| `nps_score` | int (0–10) | NPS do cliente |
+| `support_calls_30d` | int | Ligações ao suporte nos últimos 30 dias |
+| `late_payments_6m` | int | Pagamentos atrasados nos últimos 6 meses |
+| `months_to_contract_end` | int | Meses restantes de contrato |
+| *(demais campos)* | | Ver `/docs` para lista completa |
+
+**Faixas de risco retornadas:**
+- `alto`: probabilidade ≥ 0.70
+- `medio`: 0.40 ≤ probabilidade < 0.70
+- `baixo`: probabilidade < 0.40
+
+**Erros possíveis:**
+- `HTTP 422`: campo com tipo inválido (ex.: `age: "abc"`) — validação Pydantic
+- `HTTP 503`: modelo não carregado — rode `export_model.py` e reinicie a API
+
+### Variável de ambiente
+
+```bash
+# Apontar para outro modelo serializado
+CHURN_MODEL_PATH=/caminho/para/outro_modelo.joblib uvicorn churn_prediction.api.main:app
+```
+
+### Documentação interativa
+
+Acesse `http://localhost:8000/docs` para testar todos os endpoints pelo navegador via Swagger UI.
+
+---
+
+## 9. Docker
+
+### Subir a API com Docker Compose
+
+```bash
+# Pré-requisito: models/churn_pipeline.joblib deve existir (seção 7)
+docker compose up --build churn-api
+```
+
+A API fica disponível em `http://localhost:8000`.
+
+### Build manual da imagem
+
+```bash
+docker build -t churn-api:latest .
+docker run -p 8000:8000 -v $(pwd)/models:/app/models churn-api:latest
+```
+
+### Subir API + MLflow juntos
+
+```bash
+docker compose up --build
+# API:    http://localhost:8000
+# MLflow: http://localhost:5000
+```
+
+---
+
+## 10. MLflow — rastreamento de experimentos
+
+### Subir a UI
+
+```bash
+make mlflow-up
+# Acesse: http://127.0.0.1:5000
+```
+
+Ou manualmente:
+```bash
+poetry run mlflow ui --backend-store-uri ./mlruns
+```
+
+Se a porta 5000 estiver ocupada:
+```bash
+MLFLOW_PORT=5001 make mlflow-up
+```
+
+### Experimentos registrados
+
+| Experimento | Modelos |
+|---|---|
+| `churn-baselines` | dummy_stratified, log_reg, log_reg_mitigated, random_forest, gradient_boosting |
+| `churn-mlp-pytorch` | mlp_pytorch_v1 |
+
+### O que é registrado
+
+- **Parâmetros**: arquitetura, hiperparâmetros, seed, batch_size, threshold
+- **Métricas técnicas**: accuracy, f1, roc_auc, pr_auc, best_val_loss
+- **Métricas de negócio**: tp, fp, clientes_abordados, valor_liquido, valor_por_cliente
+- **Artefatos**: modelo serializado (`.joblib` nos baselines, `.pt` no MLP via `mlflow.pytorch.log_model`)
+- **Dataset version**: hash SHA-256 do CSV como tag `dataset_version`
+
+### Ver resumo no terminal (sem abrir o browser)
+
+```bash
+make analyze
+# ou
+PYTHONPATH=src poetry run python scripts/analyze_mlruns.py
+```
+
+---
+
+## 11. Testes automatizados
+
+```bash
+# Rodar todos (30 testes)
+make test
+# ou
+poetry run pytest tests/ -v
+
+# Por arquivo
+poetry run pytest tests/test_smoke.py -v     # imports dos módulos src/
+poetry run pytest tests/test_schema.py -v    # Pydantic + data cleaning + métricas
+poetry run pytest tests/test_api.py -v       # endpoints /health, /predict, /
+
+# Classe específica
+poetry run pytest tests/test_schema.py::TestDataCleaning -v
+```
+
+### Cobertura dos testes
+
+| Arquivo | O que testa |
+|---|---|
+| `test_smoke.py` | Todos os módulos `src/` importam sem erro; classes e funções existem |
+| `test_schema.py` | Schemas Pydantic (campos válidos/inválidos); limpeza de dados; métricas técnicas e de negócio |
+| `test_api.py` | `/health` retorna 200; `/predict` retorna 503 sem modelo, 200 com mock; validação de input inválido (422) |
+
+---
+
+## 12. Qualidade de código (ruff)
+
+```bash
+# Verificar
+poetry run ruff check src/ scripts/ tests/
+
+# Corrigir automaticamente
+poetry run ruff check src/ scripts/ tests/ --fix
+```
+
+Configuração em `pyproject.toml`: `line-length=100`, rules `E, F, I, B, UP`, target Python 3.11.
+
+---
 
 ## 13. Monitoramento de drift
 
-### 13.1 Passo a passo para simulação de drift
+### Simular drift
 
-Pré-requisito: a API deve estar rodando (seção 12).
+Com a API rodando (`http://localhost:8000`):
 
 ```bash
-# 1. Garantir que a API está no ar
-curl http://localhost:8000/health
-
-# 2. Enviar requisições com distribuição alterada (age +10, charges +30%)
 poetry run python scripts/simulate_drift.py --url http://localhost:8000 --n-requests 100
-
-# Os resultados são salvos em logs/drift_simulation.jsonl
+# Salva logs em: logs/drift_simulation.jsonl
 ```
 
-### 13.2 Análise de drift
+O script envia requisições com distribuição alterada (ex.: `age +10`, `charges +30%`) para simular mudança de perfil da base.
+
+### Analisar drift
 
 ```bash
-# Compara dados de treino com logs de produção
 PYTHONPATH=src poetry run python scripts/check_drift.py \
   --reference data/raw/telecom_churn_base_extended.csv \
   --production logs/drift_simulation.jsonl
 ```
 
 Saída esperada:
-
 ```
 ======================================================================
 RELATÓRIO DE DATA DRIFT
 ======================================================================
 Features analisadas: 15
 Alertas de drift: 3
-Razão de drift: 20.0%
 ----------------------------------------------------------------------
-  ⚠ DRIFT | age                            | kolmogorov_smirnov   | p=0.0001 PSI=0.2541 ⚠ PSI>0.20
-  ⚠ DRIFT | monthly_charges                | kolmogorov_smirnov   | p=0.0003 PSI=0.1872
-    OK     | nps_score                      | kolmogorov_smirnov   | p=0.4521 PSI=0.0123
+  ⚠ DRIFT | age             | kolmogorov_smirnov | p=0.0001 PSI=0.2541
+  ⚠ DRIFT | monthly_charges | kolmogorov_smirnov | p=0.0003 PSI=0.1872
+    OK     | nps_score       | kolmogorov_smirnov | p=0.4521 PSI=0.0123
 ======================================================================
 ```
 
-### 13.3 Testes estatísticos utilizados
+### Testes estatísticos
 
-| Teste | Tipo de feature | Interpretação |
-|-------|----------------|---------------|
-| **KS (Kolmogorov-Smirnov)** | Numéricas | p < 0.05 → drift detectado |
-| **Chi² (Qui-Quadrado)** | Categóricas | p < 0.05 → drift detectado |
-| **PSI** | Numéricas | < 0.10 OK · 0.10-0.20 investigar · > 0.20 retreinar |
+| Teste | Tipo de feature | Alerta |
+|---|---|---|
+| KS (Kolmogorov-Smirnov) | Numéricas | p < 0.05 |
+| Chi² (Qui-Quadrado) | Categóricas | p < 0.05 |
+| PSI | Numéricas | < 0.10 OK · 0.10–0.20 investigar · > 0.20 retreinar |
 
-## 14. CI/CD (GitHub Actions)
+---
 
-Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
-1. **Quality**: lint (ruff) + pytest em todo push/PR
-2. **Train**: gera dados → treina → exporta modelo (apenas main)
-3. **Docker**: valida build da imagem (apenas main)
+## 14. CI/CD
 
-## 15. Proximos passos
+Pipeline em `.github/workflows/ci_ml_pipeline.yml`, executado em todo push e PR:
 
-1. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
-2. Definir corte operacional por top-K para retencao.
-3. Implementar retreinamento automático via trigger de drift (CT).
-4. Adicionar autenticação JWT à API (conforme Cap. 5 do material).
-5. Deploy em cloud (Render, AWS, Azure) com autoscaling.
-6. Integrar SHAP/LIME para explainability do modelo.
+1. **Quality** (todos os branches): `ruff check` + `pytest` com 30 testes
+2. **Train** (apenas `main`): gera dados → treina baselines → exporta modelo
+3. **Docker** (apenas `main`): valida build da imagem `churn-api`
 
-## 16. Resultados dos Baselines e Interpretação
+---
 
-### 16.1 Desempenho dos modelos
+## 15. Resultados
 
-| Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
-|-------------------------------|----------|-------|---------|--------|------------------|
-| `dummy_stratified`            | 0.5294   | 0.3937| 0.5046  | 0.3959 | R$ 561.850       |
-| `log_reg` (C=1)               | 0.8069   | 0.7425| 0.8783  | 0.8480 | **R$ 1.190.800** |
-| `log_reg_best_penalty` (C=0.1)| 0.8069   | 0.7425| 0.8784  | 0.8480 | R$ 1.190.800     |
-| `log_reg_mitigated_equalized_odds` | 0.8007 | 0.7352|   --   |   --   | R$ 1.180.950     |
+### Comparação completa de modelos
 
-**Interpretação:**
-- O DummyClassifier serve como referência mínima, com métricas próximas ao acaso.
-- A Regressão Logística supera amplamente o dummy, com ROC-AUC de 0.878, indicando excelente capacidade discriminativa.
-- O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
-- O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
+| Modelo | Accuracy | F1 | ROC-AUC | PR-AUC | Valor Líquido |
+|---|---|---|---|---|---|
+| Dummy (stratified) | 0.529 | 0.394 | 0.505 | 0.396 | R$ 561.850 |
+| LogisticRegression (C=0.1) | 0.807 | 0.743 | 0.878 | 0.848 | R$ 1.190.800 |
+| RandomForest (200 est.) | 0.795 | 0.715 | 0.861 | 0.823 | R$ 1.103.750 |
+| GradientBoosting (100 est.) | 0.814 | 0.747 | 0.882 | 0.854 | R$ 1.183.300 |
+| **MLP PyTorch** | **0.807** | **0.743** | **0.877** | **0.846** | **R$ 1.192.700** |
+| LogReg + EqualizedOdds | 0.801 | 0.735 | — | — | R$ 1.180.950 |
 
-### 16.2 Diagnóstico de Overfitting
-
-| Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
-|---------------|-------------------------------|------------------------------------|
-| `log_reg`     | 0.0013                        | Sem overfitting - generaliza bem   |
-| `dummy_stratified` | -0.0085                   | OK (teste ligeiramente melhor)     |
-
-**Interpretação:**
-- O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
-
-### 16.3 Comparação de Penalizações (L1, L2, ElasticNet)
-
-| Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
-|-------------|----------|------------|---------------|
-| L2 (Ridge)  | 0.1      | 0.8782     | 0.8783        |
-| L1 (Lasso)  | 0.1      | 0.8783     | 0.8783        |
-| ElasticNet  | 0.1      | 0.8783     | **0.8784**    |
-
-**Interpretação:**
-- As três penalizações convergem para C=0.1, com diferença < 0.0002 em ROC-AUC.
-- Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
-- Mantém-se L2 como referência pela simplicidade.
-
-### 16.4 Fairness por Grupo Sensível
-
-#### `log_reg` (sem mitigação)
+### Fairness (LogisticRegression, sem mitigação)
 
 | Atributo sensível | dp_diff | eo_diff |
-|-------------------|---------|---------|
-| `gender`          | 0.0552  | 0.0741  |
-| `age_group`       | 0.1101  | 0.0758  |
-| `region`          | 0.1565  | 0.1672  |
-| `plan_type`       | 0.2960  | 0.1840  |
+|---|---|---|
+| `gender` | 0.0552 | 0.0741 |
+| `age_group` | 0.1101 | 0.0758 |
+| `region` | 0.1565 | 0.1672 |
+| `plan_type` | 0.2960 | 0.1840 |
 
-- O maior gap está em `plan_type`, indicando risco regulatório de concentrar retencao em clientes pré-pagos.
+### Feature Importance — top features (consenso RF + GB)
 
-#### `log_reg_mitigated_equalized_odds` (mitigação por `gender`)
+| Feature | Importância RF | Importância GB |
+|---|---|---|
+| `nps_detractor_flag` | 0.098 | 0.195 |
+| `late_payments_6m` | 0.060 | 0.215 |
+| `nps_category_detractor` | 0.080 | 0.090 |
+| `invoice_shock_flag` | 0.054 | 0.087 |
+| `plan_price` | 0.036 | 0.103 |
 
-| Métrica           | `log_reg` | Mitigado | Variação |
-|-------------------|-----------|----------|----------|
-| dp_diff_gender    | 0.0552    | 0.0518   | -6%      |
-| eo_diff_gender    | 0.0741    | 0.0847   | +14%     |
-| F1                | 0.7425    | 0.7352   | -0.007   |
-| Valor Líquido     | R$ 1.190.800 | R$ 1.180.950 | -R$ 9.850 |
+Satisfação (`nps_detractor_flag`) e inadimplência (`late_payments_6m`) são os sinais mais fortes de churn.
 
-- A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
-- Os gaps de outros atributos permanecem sem tratamento.
+---
 
-### 16.5 Métrica de Negócio
+## 16. Documentação complementar
 
-```
-valor_liquido = TP x R$500 - (TP + FP) x R$50
-```
+| Documento | Descrição |
+|---|---|
+| [`docs/ml_canvas.md`](docs/ml_canvas.md) | ML Canvas: problema, dados, pipeline, métricas, SLOs |
+| [`docs/model_card.md`](docs/model_card.md) | Model Card: performance, fairness, limitações, deploy, monitoramento |
+| [`docs/eda_metodologia.md`](docs/eda_metodologia.md) | Metodologia detalhada da EDA |
+| [`docs/baseline_metodologia.md`](docs/baseline_metodologia.md) | Metodologia dos baselines |
+| [`docs/fase1_doc_tecnica.md`](docs/fase1_doc_tecnica.md) | Documento técnico consolidado |
 
-- `log_reg`: **R$ 1.190.800** abordando 3.494 clientes (2.731 TP, 763 FP)
-- `dummy_stratified`: 2.254 FP para apenas 1.499 acertos -> R$ 561.850
-- Mitigacao custa apenas R$ 9.850 a menos — custo aceitável para redução de risco regulatório
+---
 
-**Resumo:**
-O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
+## Contato
 
-## 14. Resultados do MLP e Comparação Completa
-
-### 14.1 Desempenho comparativo (todos os modelos)
-
-| Modelo               | Accuracy | F1     | ROC-AUC | PR-AUC | Valor Líquido    |
-|----------------------|----------|--------|---------|--------|------------------|
-| `dummy_stratified`   | 0.5294   | 0.3937 | 0.5046  | 0.3959 | R$ 561.850       |
-| `random_forest`      | 0.7950   | 0.7154 | 0.8609  | 0.8225 | R$ 1.103.750     |
-| `log_reg`            | 0.8069   | 0.7425 | 0.8783  | 0.8480 | R$ 1.190.800     |
-| `gradient_boosting`  | 0.8137   | 0.7474 | 0.8815  | 0.8541 | R$ 1.183.300     |
-| **`mlp_pytorch`**    | 0.8067   | 0.7427 | 0.8772  | 0.8464 | **R$ 1.192.700** |
-
-**Interpretação:**
-- O MLP supera todos os modelos em **valor líquido** (+R$ 9.400 vs. GradientBoosting), com performance técnica comparável.
-- ROC-AUC e F1 do MLP ficam apenas 0.004 abaixo do GradientBoosting — diferença não significativa considerando o ganho operacional.
-- O MLP confirma a robustez do pipeline: mesmo sem tuning extenso, atinge resultado competitivo.
-
-### 14.2 Feature Importance (RF e Gradient Boosting)
-
-Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
-
-| Feature                        | Importância RF | Importância GB |
-|-------------------------------|----------------|----------------|
-| `nps_detractor_flag`          | 0.0976         | 0.1951         |
-| `late_payments_6m`            | 0.0595         | 0.2152         |
-| `cat__nps_category_detractor` | 0.0801         | 0.0901         |
-| `invoice_shock_flag`          | 0.0536         | 0.0872         |
-| `plan_price`                  | 0.0356         | 0.1033         |
-| `price_increase_last_3m`      | 0.0518         | 0.0258         |
-| `nps_promoter_flag`           | 0.0426         | 0.0331         |
-
-**Interpretação:**
-- Satisfação (`nps_detractor_flag`) e inadimplência (`late_payments_6m`) são os sinais mais fortes de churn.
-- Choques financeiros (`invoice_shock_flag`, `price_increase_last_3m`) e preço do plano também influenciam significativamente.
-- Essas features devem ser priorizadas em regras de negócio e campanhas de retenção.
-
-## 15. Contato
-
-Grupo 4 - Tech Challenge FIAP
+Grupo 4 — Tech Challenge FIAP · Machine Learning Engineering
