@@ -37,11 +37,12 @@ def _make_search_runs_df(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@patch("churn_prediction.registry.MlflowClient")
 @patch("churn_prediction.registry.mlflow")
-def test_find_champion_returns_best(mock_mlflow):
+def test_find_champion_returns_best(mock_mlflow, mock_client_cls):
     """Dado 2 runs, retorna o de maior valor_liquido."""
     mock_client = MagicMock()
-    mock_mlflow.tracking.MlflowClient.return_value = mock_client
+    mock_client_cls.return_value = mock_client
 
     exp1 = MagicMock()
     exp1.experiment_id = "1"
@@ -83,11 +84,12 @@ def test_find_champion_returns_best(mock_mlflow):
     assert result["metrics"]["valor_liquido"] == 1194000.0
 
 
+@patch("churn_prediction.registry.MlflowClient")
 @patch("churn_prediction.registry.mlflow")
-def test_find_champion_tiebreaker(mock_mlflow):
+def test_find_champion_tiebreaker(mock_mlflow, mock_client_cls):
     """Se valor_liquido empata, desempata por roc_auc."""
     mock_client = MagicMock()
-    mock_mlflow.tracking.MlflowClient.return_value = mock_client
+    mock_client_cls.return_value = mock_client
 
     exp1 = MagicMock()
     exp1.experiment_id = "1"
@@ -129,11 +131,12 @@ def test_find_champion_tiebreaker(mock_mlflow):
     assert result["run_name"] == "gradient_boosting"
 
 
+@patch("churn_prediction.registry.MlflowClient")
 @patch("churn_prediction.registry.mlflow")
-def test_find_champion_no_runs_raises(mock_mlflow):
+def test_find_champion_no_runs_raises(mock_mlflow, mock_client_cls):
     """Se não há runs, levanta ValueError."""
     mock_client = MagicMock()
-    mock_mlflow.tracking.MlflowClient.return_value = mock_client
+    mock_client_cls.return_value = mock_client
 
     exp1 = MagicMock()
     exp1.experiment_id = "1"
