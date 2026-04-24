@@ -58,30 +58,35 @@ def main():
 
     report = generate_drift_report(ref_df, prod_df, alpha=args.alpha)
 
-    # Exibe resultados
-    print("\n" + "=" * 70)
-    print("RELATÓRIO DE DATA DRIFT")
-    print("=" * 70)
-    print(f"Timestamp: {report['timestamp']}")
-    print(f"Features analisadas: {report['total_features']}")
-    print(f"Alertas de drift: {report['drift_alerts']}")
-    print(f"Razão de drift: {report['drift_ratio']:.1%}")
-    print("-" * 70)
+    sep = "=" * 70
+    logger.info(sep)
+    logger.info("RELATORIO DE DATA DRIFT")
+    logger.info(sep)
+    logger.info("Timestamp: %s", report["timestamp"])
+    logger.info("Features analisadas: %d", report["total_features"])
+    logger.info("Alertas de drift: %d", report["drift_alerts"])
+    logger.info("Razao de drift: %.1f%%", report["drift_ratio"] * 100)
+    logger.info("-" * 70)
 
     for feat, info in sorted(report["features"].items()):
-        drift = "⚠ DRIFT" if info["drift_detected"] else "  OK"
+        drift_flag = "[DRIFT]" if info["drift_detected"] else "[OK]   "
         if info["type"] == "numeric":
             psi_str = f" PSI={info['psi']:.4f}"
-            psi_flag = " ⚠ PSI>0.20" if info["psi"] > 0.20 else ""
+            psi_alert = " [PSI>0.20]" if info["psi"] > 0.20 else ""
         else:
             psi_str = ""
-            psi_flag = ""
-        print(
-            f"  {drift} | {feat:30s} | {info['test']:20s} | "
-            f"p={info['p_value']:.4f}{psi_str}{psi_flag}"
+            psi_alert = ""
+        logger.info(
+            "  %s | %-30s | %-20s | p=%.4f%s%s",
+            drift_flag,
+            feat,
+            info["test"],
+            info["p_value"],
+            psi_str,
+            psi_alert,
         )
 
-    print("=" * 70)
+    logger.info(sep)
 
     if report["drift_alerts"] > 0:
         logger.warning(
