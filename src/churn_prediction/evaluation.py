@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
@@ -123,4 +125,132 @@ def optimize_threshold(
         "best_threshold": best["threshold"],
         "best_valor_liquido": best["valor_liquido"],
         "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Intervalos de confiança via bootstrap
+# ---------------------------------------------------------------------------
+
+_METRIC_FUNCTIONS: dict[str, Callable[..., float]] = {
+    "accuracy": lambda y, p, prob: float(accuracy_score(y, p)),
+    "f1": lambda y, p, prob: float(f1_score(y, p, zero_division=0)),
+    "roc_auc": lambda y, p, prob: float(roc_auc_score(y, prob)),
+    "pr_auc": lambda y, p, prob: float(average_precision_score(y, prob)),
+}
+
+
+def bootstrap_confidence_interval(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_prob: np.ndarray | None = None,
+    metric: str = "roc_auc",
+    n_bootstrap: int = 1000,
+    confidence: float = 0.95,
+    random_state: int = 42,
+) -> dict[str, float]:
+    """Calcula intervalo de confiança via bootstrap com reamostragem com reposição.
+
+    Referência metodológica: Efron & Tibshirani (1993) — "An Introduction to the
+    Bootstrap". Recomenda-se n_bootstrap ≥ 1000 para IC 95% estável.
+
+    Args:
+        y_true: Rótulos reais (0/1).
+        y_pred: Predições binárias (necessário para accuracy/f1).
+        y_prob: Probabilidades (necessário para roc_auc/pr_auc).
+        metric: Uma de {"accuracy", "f1", "roc_auc", "pr_auc"}.
+        n_bootstrap: Número de reamostragens (default 1000, mínimo 100).
+        confidence: Nível de confiança (default 0.95).
+        random_state: Seed para reprodutibilidade.
+
+    Returns:
+        Dict com point_estimate, ci_lower, ci_upper, mean_bootstrap, std_bootstrap.
+
+    Raises:
+        ValueError: se a métrica não é suportada ou n_bootstrap < 100.
+    """
+    if metric not in _METRIC_FUNCTIONS:
+        raise ValueError(
+            f"Métrica '{metric}' não suportada. Opções: {list(_METRIC_FUNCTIONS)}"
+        )
+    if n_bootstrap < 100:
+        raise ValueError(f"n_bootstrap deve ser >= 100 (recebido {n_bootstrap})")
+
+    metric_fn = _METRIC_FUNCTIONS[metric]
+
+    y_true_np = np.asarray(y_true)
+    y_pred_np = np.asarray(y_pred)
+    y_prob_np = np.asarray(y_prob) if y_prob is not None else None
+
+    point_estimate = metric_fn(y_true_np, y_pred_np, y_prob_np)
+
+    rng = np.random.default_rng(random_state)
+    n = len(y_true_np)
+    bootstrap_scores: list[float] = []
+
+    for _ in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        y_true_boot = y_true_np[idx]
+        y_pred_boot = y_pred_np[idx]
+        y_prob_boot = y_prob_np[idx] if y_prob_np is not None else None
+
+        # Pula amostras degeneradas (apenas uma classe) para métricas que exigem ambas
+        if metric in ("roc_auc", "pr_auc", "f1") and len(np.unique(y_true_boot)) < 2:
+            continue
+
+        try:
+            score = metric_fn(y_true_boot, y_pred_boot, y_prob_boot)
+            bootstrap_scores.append(score)
+        except ValueError:
+            continue
+
+    if len(bootstrap_scores) < n_bootstrap * 0.5:
+        raise RuntimeError(
+            f"Muitas reamostragens inválidas para métrica '{metric}' "
+            f"({len(bootstrap_scores)}/{n_bootstrap}). Verifique o balanceamento."
+        )
+
+    alpha = 1.0 - confidence
+    lower_pct = (alpha / 2) * 100
+    upper_pct = (1 - alpha / 2) * 100
+    ci_lower = float(np.percentile(bootstrap_scores, lower_pct))
+    ci_upper = float(np.percentile(bootstrap_scores, upper_pct))
+
+    return {
+        "point_estimate": point_estimate,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "mean_bootstrap": float(np.mean(bootstrap_scores)),
+        "std_bootstrap": float(np.std(bootstrap_scores)),
+        "n_bootstrap_valid": len(bootstrap_scores),
+        "confidence": confidence,
+    }
+
+
+def compute_metrics_with_ci(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_prob: np.ndarray | None = None,
+    n_bootstrap: int = 1000,
+    random_state: int = 42,
+) -> dict[str, dict[str, float]]:
+    """Retorna todas as métricas técnicas com IC 95% via bootstrap.
+
+    Útil para registro no MLflow ou relatórios do Model Card.
+
+    Returns:
+        Dict por métrica, cada uma com point_estimate, ci_lower, ci_upper.
+    """
+    metrics_to_compute = ["accuracy", "f1"]
+    if y_prob is not None:
+        metrics_to_compute.extend(["roc_auc", "pr_auc"])
+
+    return {
+        name: bootstrap_confidence_interval(
+            y_true, y_pred, y_prob,
+            metric=name,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+        )
+        for name in metrics_to_compute
     }
