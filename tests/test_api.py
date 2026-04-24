@@ -103,3 +103,30 @@ class TestPredictEndpoint:
         MODEL_STATE["pipeline"] = None
         response = client.post("/predict", json={})
         assert response.status_code == 503
+
+
+class TestLatencyMiddleware:
+    def test_health_has_process_time_header(self):
+        """LatencyMiddleware injeta X-Process-Time-Ms em /health."""
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert "x-process-time-ms" in response.headers
+
+    def test_root_has_process_time_header(self):
+        """LatencyMiddleware injeta X-Process-Time-Ms em /."""
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "x-process-time-ms" in response.headers
+
+    def test_predict_error_response_has_process_time_header(self):
+        """LatencyMiddleware injeta X-Process-Time-Ms mesmo em respostas de erro (503)."""
+        MODEL_STATE["pipeline"] = None
+        response = client.post("/predict", json={"age": 35})
+        assert response.status_code == 503
+        assert "x-process-time-ms" in response.headers
+
+    def test_process_time_value_is_non_negative_float(self):
+        """Valor do header X-Process-Time-Ms é um float >= 0."""
+        response = client.get("/health")
+        latency = float(response.headers["x-process-time-ms"])
+        assert latency >= 0
