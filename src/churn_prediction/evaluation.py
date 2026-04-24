@@ -254,3 +254,136 @@ def compute_metrics_with_ci(
         )
         for name in metrics_to_compute
     }
+
+
+# ---------------------------------------------------------------------------
+# Calibração de probabilidades
+# ---------------------------------------------------------------------------
+
+def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Brier score: erro quadrático médio entre probabilidade prevista e label.
+
+    Fórmula: BS = (1/n) * Σ(y_prob_i - y_true_i)²
+
+    Interpretação:
+    - BS = 0 → calibração perfeita
+    - BS = 0.25 → modelo aleatório (probabilidade constante 0.5 com base 50/50)
+    - Quanto menor, melhor.
+
+    Args:
+        y_true: Rótulos reais (0/1).
+        y_prob: Probabilidades previstas da classe positiva.
+
+    Returns:
+        Brier score (float).
+    """
+    y_true_np = np.asarray(y_true).astype(float)
+    y_prob_np = np.asarray(y_prob).astype(float)
+    return float(np.mean((y_prob_np - y_true_np) ** 2))
+
+
+def expected_calibration_error(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """Expected Calibration Error (ECE) via binning uniforme.
+
+    Divide [0, 1] em n_bins intervalos e calcula a diferença entre confiança
+    média prevista e acurácia real em cada bin, ponderada pelo tamanho do bin.
+
+    Referência: Guo et al. (2017) — "On Calibration of Modern Neural Networks".
+
+    Interpretação:
+    - ECE = 0 → calibração perfeita
+    - ECE < 0.05 → bem calibrado
+    - ECE > 0.10 → calibração pobre, considerar Platt scaling ou isotonic regression
+
+    Args:
+        y_true: Rótulos reais (0/1).
+        y_prob: Probabilidades previstas.
+        n_bins: Número de bins uniformes em [0, 1].
+
+    Returns:
+        ECE (float, entre 0 e 1).
+    """
+    y_true_np = np.asarray(y_true).astype(float)
+    y_prob_np = np.asarray(y_prob).astype(float)
+    n = len(y_true_np)
+
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+
+    for i in range(n_bins):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        mask = (y_prob_np >= lo) & (y_prob_np < hi) if i < n_bins - 1 else (y_prob_np >= lo) & (y_prob_np <= hi)
+        bin_size = int(mask.sum())
+        if bin_size == 0:
+            continue
+        avg_confidence = float(y_prob_np[mask].mean())
+        avg_accuracy = float(y_true_np[mask].mean())
+        weight = bin_size / n
+        ece += weight * abs(avg_confidence - avg_accuracy)
+
+    return float(ece)
+
+
+def reliability_diagram_data(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+) -> dict[str, np.ndarray]:
+    """Dados para plotar diagrama de confiabilidade (reliability diagram).
+
+    O diagrama plota probabilidade média prevista (x) vs. taxa observada (y) por bin.
+    Calibração perfeita → pontos sobre a diagonal y=x.
+
+    Args:
+        y_true: Rótulos reais (0/1).
+        y_prob: Probabilidades previstas.
+        n_bins: Número de bins.
+
+    Returns:
+        Dict com bin_centers, mean_predicted, fraction_positives, bin_counts.
+    """
+    y_true_np = np.asarray(y_true).astype(float)
+    y_prob_np = np.asarray(y_prob).astype(float)
+
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    mean_predicted = np.zeros(n_bins)
+    fraction_positives = np.zeros(n_bins)
+    bin_counts = np.zeros(n_bins, dtype=int)
+
+    for i in range(n_bins):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        mask = (y_prob_np >= lo) & (y_prob_np < hi) if i < n_bins - 1 else (y_prob_np >= lo) & (y_prob_np <= hi)
+        count = int(mask.sum())
+        bin_counts[i] = count
+        if count > 0:
+            mean_predicted[i] = float(y_prob_np[mask].mean())
+            fraction_positives[i] = float(y_true_np[mask].mean())
+
+    return {
+        "bin_centers": bin_centers,
+        "mean_predicted": mean_predicted,
+        "fraction_positives": fraction_positives,
+        "bin_counts": bin_counts,
+    }
+
+
+def compute_calibration_metrics(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+) -> dict[str, float]:
+    """Conveniência: retorna Brier + ECE num dicionário.
+
+    Pronto para registro no MLflow:
+        mlflow.log_metrics(compute_calibration_metrics(y_true, y_prob))
+    """
+    return {
+        "brier_score": brier_score(y_true, y_prob),
+        "ece": expected_calibration_error(y_true, y_prob, n_bins=n_bins),
+    }
