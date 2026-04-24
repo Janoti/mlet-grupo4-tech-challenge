@@ -16,7 +16,9 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from churn_prediction.api.schemas import (
     CustomerFeatures,
@@ -78,6 +80,28 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
+# Middleware de latência
+# ---------------------------------------------------------------------------
+
+class LatencyMiddleware(BaseHTTPMiddleware):
+    """Mede latência total de cada requisição e injeta header X-Process-Time-Ms."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        start = time.perf_counter()
+        response = await call_next(request)
+        latency_ms = (time.perf_counter() - start) * 1000
+        response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
+        logger.info(
+            '{"event":"http_request","method":"%s","path":"%s","status":%d,"latency_ms":%.2f}',
+            request.method,
+            request.url.path,
+            response.status_code,
+            latency_ms,
+        )
+        return response
+
+
+# ---------------------------------------------------------------------------
 # Instância FastAPI
 # ---------------------------------------------------------------------------
 app = FastAPI(
@@ -90,6 +114,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(LatencyMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +145,6 @@ async def predict(customer: CustomerFeatures):
             status_code=503,
             detail="Modelo não carregado. Verifique CHURN_MODEL_PATH.",
         )
-
-    start = time.time()
 
     # Converte input Pydantic → DataFrame
     data = customer.model_dump()
@@ -154,14 +178,10 @@ async def predict(customer: CustomerFeatures):
     else:
         risk = "baixo"
 
-    latency_ms = (time.time() - start) * 1000
-
-    # Log estruturado da requisição (para monitoramento)
     logger.info(
-        '{"event":"prediction","churn_prob":%.4f,"risk":"%s","latency_ms":%.1f}',
+        '{"event":"prediction","churn_prob":%.4f,"risk":"%s"}',
         proba,
         risk,
-        latency_ms,
     )
 
     return PredictionResponse(
