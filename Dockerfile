@@ -2,19 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Dependências de sistema
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copia apenas arquivos de dependência primeiro (melhor cache)
 COPY pyproject.toml poetry.lock ./
 
-# Instala poetry e dependências (sem dev)
+# Estratégia: exporta requirements.txt via Poetry e instala com pip
+# Isso evita o timeout do Poetry no download de pacotes grandes (nvidia-cublas ~400MB)
 RUN pip install --no-cache-dir poetry==1.8.* \
-    && poetry config virtualenvs.create false \
-    && poetry install --only main --no-interaction --no-ansi \
+    && poetry export --only main --without-hashes -f requirements.txt -o requirements.txt \
     && pip uninstall -y poetry
+
+# Instala dependências com pip (timeout alto + retries para pacotes grandes)
+RUN pip install --no-cache-dir --default-timeout=300 --retries=5 -r requirements.txt
 
 # Copia código fonte
 COPY src/ ./src/

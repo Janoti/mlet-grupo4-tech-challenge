@@ -29,16 +29,27 @@ env/
 .vscode/
 .idea/
 
-# Data files
+# Data files — formatos binários de dados brutos e serializados
 *.csv
 *.h5
 *.pkl
 *.sqlite
-# ...mas permite commitar o dataset base
-!data/raw/
+# Artefatos serializados (sklearn pipelines, arrays de treino/teste etc.)
+# Recriados automaticamente ao executar os notebooks ou scripts de exportação
+*.joblib
 
-# Experiment tracking artifacts
-mlruns/
+# ...mas permite commitar o dataset base (fonte de verdade do projeto)
+!data/raw/
 !data/raw/telecom_churn_base.csv
 
+# Experiment tracking — MLflow gera mlruns/ localmente a cada execução
+mlruns/
+
+# Logs de testes locais — gerados por scripts como simulate_drift.py
+logs/
+
+# Runtime temporário do MLflow — PID e log do servidor background (make mlflow-up)
+.tmp/
+
+# Claude Code
 .claude/

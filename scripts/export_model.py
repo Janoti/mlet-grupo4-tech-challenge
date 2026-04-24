@@ -1,23 +1,19 @@
-"""Exporta pipeline sklearn treinado para uso pela API FastAPI.
+"""Exporta o champion do MLflow para uso pela API FastAPI.
 
 Uso:
     poetry run python scripts/export_model.py
 
-Carrega a base bruta, treina o melhor baseline (LogisticRegression)
-e salva o pipeline completo (preprocessing + modelo) em models/churn_pipeline.joblib.
+Consulta todos os experimentos no MLflow, seleciona o melhor modelo por
+valor_liquido (métrica de negócio) e exporta o pipeline + metadata para
+models/churn_pipeline.joblib e models/champion_metadata.json.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-import joblib
-from sklearn.linear_model import LogisticRegression
-
-from churn_prediction.config import LOG_REG_KWARGS
 from churn_prediction.pipelines import prepare_data
-from churn_prediction.preprocessing import build_sklearn_pipeline
+from churn_prediction.registry import export_champion, find_champion, register_champion
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,23 +22,43 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 RAW_DATA = "data/raw/telecom_churn_base_extended.csv"
-OUT_DIR = Path("models")
+MLFLOW_URI = "file:./mlruns"
 
 
 def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Buscando champion no MLflow...")
+    champion = find_champion(tracking_uri=MLFLOW_URI)
 
-    logger.info("Preparando dados...")
+    logger.info("Registrando champion no MLflow Model Registry...")
+    version = register_champion(
+        run_id=champion["run_id"],
+        tracking_uri=MLFLOW_URI,
+    )
+
+    logger.info("Preparando dados para exportação...")
     data = prepare_data(RAW_DATA)
 
-    logger.info("Treinando LogisticRegression...")
-    model = LogisticRegression(**LOG_REG_KWARGS)
-    pipe = build_sklearn_pipeline(data["X_train"], model)
-    pipe.fit(data["X_train"], data["y_train"])
+    logger.info("Exportando champion...")
+    export_champion(
+        champion=champion,
+        version=version,
+        data=data,
+        tracking_uri=MLFLOW_URI,
+    )
 
-    out_path = OUT_DIR / "churn_pipeline.joblib"
-    joblib.dump(pipe, out_path)
-    logger.info("Pipeline exportado em %s", out_path)
+    # Log resumo dos candidatos
+    logger.info("=" * 60)
+    logger.info("CHAMPION: %s", champion["run_name"])
+    logger.info("  run_id: %s", champion["run_id"][:8])
+    for metric, value in champion["metrics"].items():
+        logger.info("  %s: %.4f", metric, value)
+    logger.info("-" * 60)
+    logger.info("Candidatos avaliados:")
+    for i, c in enumerate(champion["all_candidates"], 1):
+        vl = c.get("valor_liquido", 0)
+        roc = c.get("roc_auc", 0)
+        logger.info("  %d. %s | valor_liquido=%.0f | roc_auc=%.4f", i, c["run_name"], vl, roc)
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

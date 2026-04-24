@@ -7,6 +7,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -48,14 +49,27 @@ MODEL_PATH = os.getenv(
 
 
 def load_model(path: str | None = None) -> None:
-    """Carrega pipeline sklearn serializado."""
+    """Carrega pipeline serializado e metadata do champion."""
     path = path or MODEL_PATH
     if not Path(path).exists():
         logger.warning("Modelo não encontrado em %s", path)
         return
     MODEL_STATE["pipeline"] = joblib.load(path)
-    MODEL_STATE["model_version"] = Path(path).stem
-    logger.info("Modelo carregado: %s", path)
+
+    # Tenta carregar metadata do champion para identificar o modelo real
+    metadata_path = Path(path).parent / "champion_metadata.json"
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        MODEL_STATE["model_version"] = metadata.get("champion_run_name", Path(path).stem)
+        logger.info(
+            "Champion carregado: %s (run_id=%s, valor_liquido=%.0f)",
+            metadata.get("champion_run_name"),
+            metadata.get("champion_run_id", "?")[:8],
+            metadata.get("metrics", {}).get("valor_liquido", 0),
+        )
+    else:
+        MODEL_STATE["model_version"] = Path(path).stem
+        logger.info("Modelo carregado: %s (sem champion_metadata.json)", path)
 
 
 @asynccontextmanager

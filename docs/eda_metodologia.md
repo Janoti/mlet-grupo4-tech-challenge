@@ -1,345 +1,373 @@
 # Metodologia da EDA e Preparo da Base
 
-## 1. Objetivo deste documento
+## 1. O que e EDA e por que ela existe
 
-Este documento explica, em linguagem direta, o que foi feito no notebook `notebooks/01_eda.ipynb`, por que cada etapa existe e qual foi a justificativa das principais escolhas metodologicas.
+EDA significa Exploratory Data Analysis, ou Analise Exploratoria de Dados. E a etapa em que o cientista de dados para, olha com cuidado para o que tem em maos e pergunta: "esse dado esta em condicoes de ser usado?"
 
-A ideia nao e apenas descrever comandos, mas registrar a logica do trabalho para que qualquer pessoa do grupo consiga:
+Dois artigos que guiaram a construcao deste notebook resumem bem essa ideia:
 
-- entender o fluxo completo da EDA
-- defender as decisoes em apresentacao
-- reproduzir o preparo da base para baseline
-- separar claramente diagnostico, tratamento e validacao
+O primeiro, de Soner Yildirim (Towards Data Science), comeca com uma frase direta: **"We should never just dump the raw data into a machine learning model. Garbage in, garbage out."** Ou seja, se voce joga dado sujo dentro de um modelo, o que sai e lixo. A EDA e exatamente o ato de limpar, entender e validar antes de modelar.
 
-## 2. Pergunta central da EDA
+O segundo, de Miriam Santos (Towards Data Science), usa outra analogia igualmente forte: **"It's like running a diagnosis on your data."** Da mesma forma que um medico nao prescreveria remedio sem antes examinar o paciente, um cientista de dados nao deveria treinar modelo sem antes fazer o diagnostico do dado.
 
-A pergunta que guiou o notebook foi:
+Essas duas ideias — lixo na entrada, lixo na saida; e diagnostico antes de prescricao — orientaram cada decisao deste notebook.
 
-**a base `telecom_churn_base_extended.csv` esta pronta para treinamento de baselines depois do tratamento minimo necessario e sem leakage metodologico?**
+## 2. Pergunta central do notebook
 
-Essa pergunta e importante porque a base foi gerada de forma propositalmente imperfeita. Ou seja, o objetivo da Fase 1 nao era apenas fazer graficos bonitos, mas verificar se a base poderia ser usada de forma tecnicamente defensavel.
+Toda EDA precisa de uma pergunta que a guie. A pergunta deste notebook foi:
+
+**A base `telecom_churn_base_extended.csv` esta pronta para treinar modelos baseline depois de um tratamento minimo e sem leakage metodologico?**
+
+Essa pergunta foi escolhida porque a base foi gerada de forma propositalmente imperfeita. O objetivo da Fase 1 nao era so fazer graficos bonitos, mas verificar se a base poderia ser usada de forma tecnicamente defensavel.
 
 ## 3. Visao geral do fluxo
 
-O notebook foi organizado em oito etapas:
+O notebook tem dez etapas. A ordem nao e arbitraria: ela separa claramente o que foi observado, o que foi corrigido e o que ficou pronto para modelagem.
 
-1. Carregamento e contexto da base
-2. Qualidade estrutural dos dados
-3. Distribuicao do target e sinais de churn na base bruta
-4. Data readiness e risco de leakage
-5. Tratamento da base para baseline
-6. Split, imputacao e matriz final sem leakage
-7. Validacao final da base preparada
-8. Conclusao executiva
+```
+0. Business Understanding       → por que esse problema existe e o que queremos prever
+1. Entendimento da base         → carregamento, tipos, estrutura inicial
+2. Qualidade dos dados          → o que esta quebrado na base bruta
+3. Target e sinais de churn     → o que a base revela sobre o problema de negocio
+4. Data readiness e leakage     → o que pode e o que nao pode entrar no modelo
+5. Tratamento para baseline     → correcoes minimas e auditaveis
+6. Split, imputacao e encoding  → preparar a matriz sem contaminar o treino com o teste
+7. Validacao final              → provar que o preparo funcionou
+8. Conclusao executiva          → resposta objetiva a pergunta central
+9. Diagnostico de fairness      → verificar se o modelo tem vies por grupo demografico
+```
 
-Essa ordem foi escolhida para manter uma separacao clara entre:
+## 4. Etapa 0: Business Understanding
 
-- o que foi observado na base original
-- o que foi corrigido
-- o que ficou apto para modelagem
+### O que foi feito
 
-## 4. Etapa 1: carregamento e contexto da base
+Antes de qualquer codigo, o notebook apresenta:
+
+- o problema de negocio: prever quais clientes de uma operadora de telecom vao cancelar o servico (churn)
+- quem e afetado por esse problema e o que esta em jogo
+- quais metricas de sucesso fazem sentido para avaliar o modelo
+
+### Por que essa etapa existe
+
+Um modelo de churn so faz sentido se quem o constroi entende o negocio por tras dele. Sem isso, e facil cometer erros como:
+
+- incluir variaveis que o negocio nunca teria disponivel no momento da predicao
+- escolher metricas erradas (acuracia num dataset desbalanceado, por exemplo, e uma metrica enganosa)
+- nao conseguir explicar os resultados para quem vai usar o modelo
+
+Essa etapa e a ancora conceitual de tudo que vem depois.
+
+## 5. Etapa 1: Entendimento da base
 
 ### O que foi feito
 
 - leitura do arquivo `data/raw/telecom_churn_base_extended.csv`
-- definicao de colunas principais, como `customer_id` e `churn`
-- conversao de colunas de data
-- identificacao inicial de colunas numericas e categoricas
-- exibicao de amostra da base e metadados gerais
+- identificacao das colunas principais (`customer_id` como identificador, `churn` como target)
+- conversao de colunas de data para o tipo correto
+- separacao inicial entre colunas numericas e categoricas
+- inspecao de amostra e metadados gerais
 
 ### Por que essa etapa existe
 
-Antes de qualquer analise, e necessario confirmar que o notebook esta lendo a base correta e que os tipos de dados fazem sentido. Essa etapa evita erros basicos, como:
+Antes de qualquer analise, e necessario confirmar que voce esta lendo o arquivo certo e que os tipos de dado fazem sentido. E o equivalente a olhar o mapa antes de comecar uma viagem.
 
-- usar arquivo errado
-- interpretar datas como texto
-- tratar colunas categoricas como numericas
-- misturar target com feature sem perceber
+Erros classicos que essa etapa evita:
 
-### Por que essas escolhas foram feitas
+- usar o arquivo errado sem perceber
+- interpretar uma data como texto e perder toda informacao temporal
+- tratar uma coluna categorica como numerica e calcular media de CEP
+- confundir target com feature
 
-- `customer_id` foi tratado como identificador e nao como feature porque ele distingue clientes, mas nao deve ser usado para treinar modelo.
-- `churn` foi definido como target porque representa a variavel de negocio que queremos prever.
-- As datas foram convertidas logo no inicio para permitir leitura mais correta da estrutura da base.
+### Decisoes tomadas
 
-## 5. Etapa 2: qualidade estrutural dos dados
+- `customer_id` foi tratado como identificador, nao como feature. Ele distingue clientes, mas nao deve entrar no modelo porque nao carrega informacao preditiva.
+- `churn` foi definido como target desde o inicio para evitar que qualquer analise subsequente trate ele como feature.
+- As datas foram convertidas imediatamente para permitir analise temporal correta.
+
+## 6. Etapa 2: Qualidade dos dados
 
 ### O que foi feito
 
 - contagem de IDs duplicados
-- contagem de linhas duplicadas
-- identificacao de colunas com missing
-- identificacao de colunas constantes
-- identificacao de alta cardinalidade
-- visualizacao de missing por coluna
+- contagem de linhas completamente duplicadas
+- identificacao de colunas com valores ausentes (missing)
+- identificacao de colunas constantes (que tem o mesmo valor em todas as linhas)
+- identificacao de colunas com alta cardinalidade
+- visualizacao da distribuicao de missings por coluna
 - visualizacao de distribuicoes extremas com boxplots
 
 ### Por que essa etapa existe
 
-Em uma base sintetica "suja", a primeira pergunta relevante nao e "qual variavel mais explica churn", mas sim "posso confiar nessa base para treinar alguma coisa?".
+Em uma base sintetica "suja", a primeira pergunta relevante nao e "qual variavel mais explica churn". E: "posso confiar nessa base para treinar alguma coisa?"
 
-Se o dataset tiver duplicidade, categorias invalidas, missing ou valores absurdos, qualquer baseline treinado depois pode parecer melhor ou pior do que realmente e.
+Miriam Santos coloca bem: *"Finding these data quality issues at the beginning of a project is critical. If not identified and addressed prior to model building, they can jeopardize the whole ML pipeline."* Problemas de qualidade encontrados depois do treino sao muito mais caros de corrigir do que os encontrados na EDA.
 
-### Por que essas escolhas foram feitas
+### Por que cada verificacao foi feita
 
-- Duplicidade de linha foi verificada porque pode inflar a amostra artificialmente.
-- Duplicidade de `customer_id` foi verificada porque um mesmo cliente repetido pode distorcer treino e avaliacao.
-- Missing foi mapeado logo cedo porque impacta diretamente a estrategia de imputacao.
-- Boxplots foram usados porque sao uma forma simples de localizar valores extremos relevantes para baseline tabular.
+**Duplicidade de linha:** uma linha completamente igual a outra nao traz informacao nova. Ela apenas infla a amostra e pode fazer o modelo "aprender" um mesmo exemplo mais de uma vez, distorcendo o treino.
+
+**Duplicidade por `customer_id`:** um mesmo cliente aparecendo duas vezes no dataset pode criar uma situacao onde o mesmo individuo esta no treino e no teste ao mesmo tempo, o que invalida a avaliacao do modelo.
+
+**Valores ausentes (missing):** dados faltantes nao sao so inconvenientes. Eles podem comprometer classificadores inteiros ou distorcer predicoes. A decisao de como trata-los — dropar, imputar ou manter — depende de quanto falta e de por que falta.
+
+**Colunas constantes:** uma coluna que tem o mesmo valor em todas as linhas nao tem capacidade preditiva. Ela nao ajuda o modelo a distinguir clientes que churam de clientes que nao churam.
+
+**Boxplots para outliers:** um outlier nao e automaticamente um erro. Pode ser um valor legitimo e extremo. O boxplot ajuda a visualizar onde estao esses valores e a decidir se merecem investigacao. Como Soner Yildirim explica, comparar a media com a mediana tambem e util: se a media e bem maior que a mediana, a distribuicao esta puxada para cima por valores extremos.
 
 ### Leitura correta dessa etapa
 
-Essa secao descreve a **base bruta**, nao a base final de modelagem. Isso e importante para apresentacao: aqui estamos mostrando os problemas encontrados, nao o estado final do dataset.
+Tudo nessa secao descreve a **base bruta**, antes de qualquer correcao. Isso e importante para apresentacao: aqui estamos mostrando o que estava errado, nao o estado final.
 
-## 6. Etapa 3: distribuicao do target e sinais de churn na base bruta
+## 7. Etapa 3: Distribuicao do target e sinais de churn
 
 ### O que foi feito
 
-- medicao da proporcao de churn
-- comparacao de churn por tipo de plano
-- comparacao de churn por categoria de NPS
-- comparacao de churn por inadimplencia
-- exploracao de distribuicoes numericas relevantes
+- medicao da proporcao de churn na base
+- comparacao da taxa de churn por tipo de plano
+- comparacao da taxa de churn por categoria de NPS
+- comparacao da taxa de churn por inadimplencia
+- distribuicoes de variaveis numericas separadas por churn/nao-churn
 - correlacoes lineares simples com o target
 
 ### Por que essa etapa existe
 
-Depois de entender a qualidade da base, o proximo passo foi verificar se existem sinais minimamente coerentes para o problema de negocio.
+Depois de entender a qualidade da base, o proximo passo e verificar se a base tem sinais minimos coerentes para o problema de negocio. Nao adianta tratar e modelar uma base que, no fundo, nao tem nenhuma informacao sobre o que queremos prever.
 
-Essa secao serve para responder perguntas como:
+As perguntas que guiaram essa secao:
 
-- o target esta muito raro ou razoavelmente balanceado?
-- existem segmentos com churn mais alto?
+- o target esta muito raro ou razoavelmente distribuido?
+- existem segmentos de clientes com churn mais alto?
 - as variaveis numericas parecem carregar algum sinal?
 
-### Por que essas escolhas foram feitas
+**Por que o desbalanceamento importa:** em problemas de churn, a maioria dos clientes nao cancela. Uma base com 90% de nao-churn e 10% de churn e considerada desbalanceada. Um modelo que classifica todo mundo como "nao churn" acerta 90% das vezes — mas nao aprende nada util. Por isso, entender o balanceamento do target e essencial antes de escolher metricas e algoritmos.
 
-- `plan_type`, `nps_category` e `default_flag` foram escolhidas porque fazem sentido de negocio em churn de telecom.
-- Foram usadas taxas de churn por grupo em vez de testes causais porque a Fase 1 e exploratoria.
-- As correlacoes foram mantidas como leitura auxiliar, nao como criterio unico de selecao, porque churn dificilmente depende de relacoes lineares simples.
+### Por que essas variaveis foram escolhidas
+
+- `plan_type`, `nps_category` e `default_flag` foram escolhidas porque fazem sentido de negocio: cliente inadimplente, insatisfeito ou com plano especifico tende a ter comportamento diferente.
+- Foram usadas taxas de churn por grupo em vez de testes causais porque a Fase 1 e exploratoria, nao inferencial.
+- As correlacoes foram mantidas como leitura auxiliar, nao como criterio unico de selecao. Churn dificilmente depende so de relacoes lineares simples.
 
 ### Importante
 
-Essas analises ainda foram feitas na base bruta. Isso foi intencional. O objetivo era entender o comportamento original da base antes de alterar registros.
+Essas analises ainda foram feitas na base bruta. Isso foi intencional: o objetivo era entender o comportamento original antes de alterar qualquer registro.
 
-## 7. Etapa 4: data readiness e risco de leakage
+## 8. Etapa 4: Data readiness e risco de leakage
 
 ### O que foi feito
 
-- classificacao de colunas por papel: ID, target ou feature
+- classificacao de cada coluna por papel: ID, target ou feature
 - marcacao de colunas com risco de leakage
 - marcacao de colunas sensiveis a janela temporal
-- geracao de uma recomendacao por coluna
-- criacao de um checklist executivo de readiness
+- geracao de uma recomendacao de acao por coluna
+- checklist executivo de readiness da base
 
 ### Por que essa etapa existe
 
-Nem toda coluna disponivel deve ir para um baseline. Em problemas de churn, alguns campos ficam perigosamente proximos do evento que queremos prever, ou ate representam acao posterior ao problema.
+Nem toda coluna disponivel deve entrar no modelo. Em problemas de churn, alguns campos ficam perigosamente proximos do evento que queremos prever, ou representam acoes que so acontecem depois que o churn ja ocorreu.
 
-Sem essa etapa, o modelo pode aprender um atalho indevido.
+Se essas colunas entrarem no treino, o modelo aprende um atalho indevido: ele "ve o futuro" durante o treino e depois falha completamente em producao, quando esse futuro nao existe. Isso se chama **data leakage**.
 
-### Por que essas escolhas foram feitas
+Como Miriam Santos descreve, identificar leakage na fase de EDA e a forma mais barata de preveni-lo. Descobrir leakage depois que o modelo esta em producao e catastrofico.
 
-- `churn_probability` foi excluida por ser um artefato do gerador sintetico. Ela nao representa uma variavel observada no negocio e pode vazar informacao do target.
-- `retention_offer_made` e `retention_offer_accepted` foram excluidas porque representam acao de retencao, ou seja, variaveis muito proximas ou posteriores ao churn.
-- `customer_id` foi removido por ser identificador.
-- Variaveis como `usage_delta_pct`, `days_past_due`, `support_calls_30d` e similares foram marcadas como sensiveis a janela temporal porque precisam de governanca clara em producao.
+### O que foi excluido e por que
 
-### Beneficio para apresentacao
+| Coluna | Motivo da exclusao |
+|---|---|
+| `customer_id` | Identificador. Nao carrega informacao preditiva. |
+| `churn_probability` | Artefato do gerador sintetico. Representa diretamente o target e causaria leakage total. |
+| `retention_offer_made` | Acao de retencao que so existe porque o churn ja estava proximo. Variavel posterior ao evento. |
+| `retention_offer_accepted` | Mesma logica: resposta a uma oferta que so foi feita por causa do risco de churn. |
+| `contract_renewal_date` | Data com alto risco de leakage temporal: saber a data de renovacao implica saber quando o contrato termina, o que esta diretamente ligado ao momento do churn. |
+| `loyalty_end_date` | Mesma logica de leakage temporal: implica informacao sobre o estado do vinculo do cliente no momento do evento. |
 
-Essa etapa mostra maturidade metodologica. Em vez de usar tudo que existe, o notebook justifica o que entra e o que sai da modelagem.
+### Variaveis com aviso de janela temporal
 
-## 8. Etapa 5: tratamento da base para baseline
+Colunas como `usage_delta_pct`, `days_past_due` e `support_calls_30d` foram marcadas como **sensiveis a janela temporal**. Elas podem ser usadas, mas exigem governanca clara em producao: a janela de calculo precisa ser sempre anterior ao momento da predicao.
+
+### Por que isso importa na apresentacao
+
+Essa etapa mostra maturidade metodologica. Em vez de usar tudo que existe, o notebook justifica o que entra e o que sai da modelagem. Isso e algo que qualquer banca tecnica vai perguntar.
+
+## 9. Etapa 5: Tratamento da base para baseline
 
 ### O que foi feito
 
-- copia da base original para uma base de trabalho
-- auditoria de duplicidade por `customer_id`
+- copia da base original para uma base de trabalho (a base original nunca e alterada)
+- auditoria de duplicidade por `customer_id` com medicao do impacto
 - remocao de linhas duplicadas exatas
 - remocao de duplicidade por ID, mantendo a primeira ocorrencia
 - conversao de valores fora de faixa para `NaN`
 - limpeza de categorias invalidas
-- ajuste de inconsistencias logicas simples
-- geracao de tabelas-resumo com contagem de correcoes
+- correcao de inconsistencias logicas simples
 
 ### Por que essa etapa existe
 
-O objetivo aqui nao era construir o melhor pipeline possivel, mas sim um tratamento minimo, reproduzivel e justificavel para permitir o treino de baselines.
+O objetivo nao era construir o melhor pipeline possivel. Era um tratamento minimo, reproduzivel e justificavel para permitir o treino de baselines.
 
-### Por que essas escolhas foram feitas
+### Decisoes detalhadas
 
-#### 8.1 Auditoria de duplicados por ID
+**Auditoria antes de remover:** antes de apagar qualquer duplicado, o notebook mede quantos existem, quantas linhas participam e se ha conflito no target. Isso nao e so burocracia — e o que permite defender a decisao em apresentacao com numeros.
 
-Antes de remover duplicados, o notebook mede:
+**Manter a primeira ocorrencia por `customer_id`:** decisao pragmatica para Fase 1. Em um pipeline maduro, a regra seria temporal (manter o registro mais recente) ou consolidada (agregar registros do mesmo cliente). Aqui, a regra foi simplificada e documentada.
 
-- quantos `customer_id` repetidos existem
-- quantas linhas participam dessas duplicidades
-- quantos IDs possuem conflito no target
-- qual a maior quantidade de registros por cliente
+**Valores fora de faixa viram `NaN`, nao valores "corrigidos":** para colunas como idade, NPS, CSAT e indicadores de taxa, valores impossiveis nao foram substituidos por um numero inventado. Eles foram marcados como ausentes. Isso preserva a informacao de que o registro estava inconsistente e permite imputacao controlada depois.
 
-Isso foi incluido porque apenas apagar duplicados sem auditoria deixa a metodologia fragil para apresentacao.
+**Categorias invalidas viram `NaN`:** quando uma categoria nao fazia parte do dominio esperado, ela foi tratada como ausente. Em Fase 1, o objetivo e estabilizar a base, nao criar novas classes.
 
-#### 8.2 Remocao de duplicidade exata
-
-Linhas totalmente iguais nao trazem informacao nova. Elas apenas repetem observacoes e podem enviesar estatisticas e o treino do modelo.
-
-#### 8.3 Manter a primeira ocorrencia por `customer_id`
-
-Essa foi uma decisao pragmatica para Fase 1. O notebook deixa essa regra explicita. Em um pipeline mais maduro, seria melhor definir regra temporal ou de consolidacao por cliente.
-
-#### 8.4 Valores fora de faixa convertidos para `NaN`
-
-Para colunas como idade, NPS, CSAT, charges e indicadores de taxa, valores impossiveis nao foram "corrigidos no chute". Eles foram convertidos para `NaN`.
-
-Essa escolha foi feita porque:
-
-- evita inventar valor arbitrario
-- preserva a informacao de que o registro esta inconsistente
-- permite imputacao controlada depois
-
-#### 8.5 Categorias invalidas convertidas para `NaN`
-
-Quando uma categoria nao fazia parte do dominio esperado, ela foi tratada como ausente. Isso foi preferido a criar classe nova porque, na Fase 1, o interesse principal e estabilizar a base para baseline.
-
-#### 8.6 Ajustes logicos simples
-
-Algumas inconsistencias foram corrigidas de forma deterministica, por exemplo:
-
+**Inconsistencias logicas corrigidas deterministicamente:** alguns problemas tinham solucao obvia, por exemplo:
 - cliente sem fidelidade nao deveria ter meses restantes de fidelidade
-- cliente com atraso nao deveria manter `default_flag = 0`
+- cliente com atraso confirmado nao deveria ter `default_flag = 0`
 - oferta aceita nao deveria coexistir com `retention_offer_made = 0`
 
-Essa escolha foi feita porque sao contradicoes simples e diretamente verificaveis.
+Essas correcoes sao diretamente verificaveis e nao dependem de suposicoes estatisticas.
 
-## 9. Etapa 6: split, imputacao e matriz final sem leakage
+## 10. Etapa 6: Split, imputacao e matriz final sem leakage
 
 ### O que foi feito
 
-- remocao de colunas que nao devem ir para a modelagem
-- separacao entre features e target
-- split estratificado em treino e teste
-- imputacao de numericas com mediana do treino
-- imputacao de categoricas com moda do treino
-- one-hot encoding em treino e teste
-- alinhamento das colunas do teste com as colunas do treino
+1. remocao das colunas que nao devem entrar na modelagem
+2. separacao entre features (`X`) e target (`y`)
+3. split estratificado 80/20 em treino e teste
+4. imputacao de numericas com mediana do treino
+5. imputacao de categoricas com moda do treino
+6. capping de outliers por IQR, calculado no treino e aplicado no teste
+7. one-hot encoding em treino e teste
+8. alinhamento das colunas do teste com as colunas do treino
 
 ### Por que essa etapa existe
 
-Essa e a etapa que transforma a base tratada em uma matriz pronta para modelos baseline.
+Essa e a etapa que transforma a base tratada em uma matriz pronta para modelos baseline. E tambem onde o risco de leakage e maior, porque e aqui que as transformacoes sao aprendidas.
 
-### Por que essas escolhas foram feitas
+### A decisao mais importante: split antes de tudo
 
-#### 9.1 Split antes de imputacao e encoding
+O split acontece antes da imputacao, do capping e do encoding. Isso nao e detalhe tecnico — e a correcao metodologica principal do notebook.
 
-Essa foi a principal correcao metodologica do notebook.
+Se a mediana, a moda ou as categorias fossem calculadas usando a base inteira, o treino estaria recebendo informacao do teste sem saber. O modelo "aprenderia" algo sobre dados que nunca deveria ter visto. Em producao, esse comportamento nao existiria, e o modelo falharia.
 
-O split acontece antes das transformacoes para evitar leakage. Se a mediana, a moda ou as categorias fossem aprendidas usando a base inteira, o treino estaria recebendo informacao do teste.
+A regra e simples: qualquer transformacao que "aprende algo dos dados" deve aprender **so com o treino** e ser aplicada no teste de forma passiva.
 
-#### 9.2 Split estratificado 80/20
+### Por que 80/20 estratificado
 
-Essa escolha foi feita porque:
+- 80/20 e uma proporcao simples e amplamente aceita para baseline
+- a estratificacao preserva a taxa de churn entre treino e teste, garantindo que ambos representam o mesmo problema
+- sem estratificacao, e possivel ter um teste com proporcao de churn muito diferente do treino, o que invalida a comparacao de metricas
 
-- 80/20 e proporcao simples e aceita para baseline
-- a estratificacao preserva a taxa de churn entre treino e teste
-- facilita comparacao consistente entre modelos na fase seguinte
+### Por que mediana para numericas
 
-#### 9.3 Imputacao por mediana em numericas
+A mediana e robusta a outliers. Se uma coluna tem alguns valores extremos, a media seria puxada por eles e imputaria um valor que nao representa o comportamento tipico. A mediana ignora esses extremos e representa melhor o centro da distribuicao.
 
-A mediana foi escolhida porque e robusta a outliers e adequada para uma etapa inicial em base tabular.
+### Por que moda para categoricas
 
-#### 9.4 Imputacao por moda em categoricas
+A moda e a categoria mais frequente. Em uma impute simples de Fase 1, substituir ausentes pela categoria mais comum e uma solucao interpretavel e suficiente para tirar a base do estado invalido.
 
-A moda foi escolhida por simplicidade e interpretabilidade. Em baseline, essa solucao costuma ser suficiente para tirar a base do estado invalido sem acrescentar complexidade desnecessaria.
+### Por que capping de outliers por IQR
 
-#### 9.5 One-hot encoding
+Apos a imputacao, valores extremos que sobreviveram ao tratamento anterior sao limitados ao intervalo definido pelo IQR (distancia entre o primeiro e o terceiro quartil). Isso nao elimina os outliers, mas controla seu impacto sobre o treino do modelo. O limite e calculado no treino e aplicado tanto no treino quanto no teste.
 
-Foi escolhido porque:
+### Por que one-hot encoding
 
-- e padrao para modelos tabulares simples
-- torna categorias explicitamente modelaveis
-- evita impor ordem artificial entre categorias
+- e o padrao para modelos tabulares simples
+- torna cada categoria uma coluna binaria, explicita e interpretavel
+- evita impor ordem artificial entre categorias (o que aconteceria com label encoding)
 
-#### 9.6 Alinhamento entre treino e teste
+### Por que alinhar colunas apos o encoding
 
-Depois do `get_dummies`, treino e teste podem gerar conjuntos de colunas diferentes. Por isso, o teste foi reindexado com base nas colunas do treino.
+Depois do `get_dummies`, treino e teste podem gerar conjuntos de colunas diferentes — por exemplo, se uma categoria so aparece no treino ou so no teste. O teste e reindexado com base nas colunas do treino para garantir que ambos tenham a mesma estrutura de entrada.
 
-Essa etapa e necessaria para garantir que ambos tenham a mesma estrutura de entrada para os modelos.
-
-## 10. Etapa 7: validacao final da base preparada
+## 11. Etapa 7: Validacao final da base preparada
 
 ### O que foi feito
 
 - verificacao de IDs duplicados apos tratamento
 - verificacao de linhas duplicadas apos tratamento
 - verificacao de missing no treino e no teste
-- verificacao de ausencia de colunas de leakage na matriz final
+- verificacao de ausencia das colunas de leakage na matriz final
 - verificacao de colunas constantes no treino
 - comparacao da taxa de churn entre base bruta, base tratada, treino e teste
 
 ### Por que essa etapa existe
 
-Sem uma validacao final, o notebook terminaria no ponto exato em que muita gente assume que "deu certo" sem provar.
+Sem validacao, o notebook terminaria exatamente no ponto em que a maioria assume que "deu certo" sem provar.
 
-Essa secao transforma a preparacao em algo auditavel.
+Essa secao transforma a preparacao em algo auditavel. Cada verificacao responde uma pergunta especifica:
 
-### Por que essas escolhas foram feitas
+| Verificacao | O que prova |
+|---|---|
+| 0 missing no treino e teste | A imputacao foi suficiente. Nao sobrou dado faltante. |
+| 0 leakage na matriz final | As colunas excluidas realmente ficaram fora do treino. |
+| 0 duplicidade apos tratamento | A base final nao herdou os problemas estruturais da base bruta. |
+| Taxa de churn identica entre treino e teste | A estratificacao preservou o balanceamento do target. |
 
-- `0` missing em treino e teste confirma que a imputacao foi suficiente.
-- `0` leakage na matriz final confirma que as colunas excluidas realmente ficaram fora do treino.
-- `0` duplicidade apos tratamento confirma que a base final nao herdou o problema estrutural da base bruta.
-- a taxa de churn quase identica entre treino e teste confirma que a estratificacao preservou o balanceamento do target.
+### Por que isso importa
 
-## 11. Etapa 8: conclusao executiva
+Em uma apresentacao, qualquer pessoa pode perguntar: "voce tem certeza que nao tem leakage?" ou "o teste e representativo do treino?". Essa etapa permite responder com evidencia, nao com suposicao.
 
-### O que a conclusao resume
+## 12. Etapa 8: Conclusao executiva
 
-A conclusao do notebook sintetiza tres mensagens:
+### O que a conclusao sintetiza
 
 1. a base tem sinais de negocio coerentes para churn
-2. a base bruta possui problemas reais de qualidade
-3. depois do tratamento e da validacao, a base fica pronta para treino de baseline
+2. a base bruta tinha problemas reais de qualidade
+3. depois do tratamento e da validacao, a base ficou pronta para treino de baseline
 
-### Por que essa etapa e importante
+### Por que essa etapa existe
 
-Em uma apresentacao, o publico normalmente nao quer revisar cada linha de codigo. A conclusao executiva serve para responder de forma objetiva:
+Nenhuma apresentacao termina bem se o publico sair sem saber a resposta da pergunta principal. A conclusao executiva responde de forma objetiva:
 
 - o dataset serve para o problema?
 - havia problemas relevantes?
 - eles foram tratados de forma consistente?
 - a proxima etapa pode comecar com seguranca?
 
-## 12. Resumo das principais escolhas metodologicas
+## 13. Etapa 9: Diagnostico inicial de fairness
+
+### O que foi feito
+
+Usando a biblioteca Fairlearn, o notebook verifica se o modelo baseline apresenta disparidade de desempenho entre grupos demograficos — por exemplo, se ele funciona de forma significativamente pior para clientes de determinada faixa etaria, genero ou regiao.
+
+### Por que essa etapa existe
+
+Um modelo pode ter boa acuracia geral e ainda assim ser injusto com grupos especificos. Isso nao e so uma questao etica — e um risco regulatorio e de reputacao para o negocio.
+
+Miriam Santos destaca que a analise de bias e parte da EDA responsavel: descobrir que uma feature esta correlacionada com um atributo protegido (como raca ou genero) ja na fase de exploracao permite tomar decisoes conscientes antes de colocar o modelo em producao.
+
+O diagnostico de fairness nesta fase nao e definitivo — e um alerta inicial que orienta as fases seguintes.
+
+## 14. Resumo das principais escolhas metodologicas
 
 ### Escolha 1: analisar a base bruta antes de tratar
 
-Motivo: mostrar transparência sobre os problemas da base e evitar mascarar erro antes do diagnostico.
+Motivo: mostrar transparencia sobre os problemas encontrados e evitar mascarar erros antes do diagnostico.
 
 ### Escolha 2: separar readiness de tratamento
 
-Motivo: deixar claro o que era problema da base original e o que passou a ser estado da base preparada.
+Motivo: deixar claro o que era problema original da base e o que passou a ser estado da base preparada.
 
 ### Escolha 3: auditar duplicados antes de remover
 
-Motivo: fortalecer a justificativa em apresentacao e mostrar o impacto do problema.
+Motivo: fortalecer a justificativa em apresentacao e mostrar o impacto quantificado do problema.
 
 ### Escolha 4: transformar valores invalidos em `NaN`
 
 Motivo: tratar inconsistencias sem inventar substituicoes arbitrarias.
 
-### Escolha 5: split antes de imputacao e encoding
+### Escolha 5: split antes de imputacao, capping e encoding
 
-Motivo: evitar leakage metodologico.
+Motivo: evitar leakage metodologico. Qualquer transformacao que aprende dos dados deve aprender so com o treino.
 
 ### Escolha 6: usar mediana e moda
 
-Motivo: simplicidade, robustez e boa adequacao para baseline de Fase 1.
+Motivo: simplicidade, robustez a outliers e boa adequacao para baseline de Fase 1.
 
-### Escolha 7: validar a base final explicitamente
+### Escolha 7: capping por IQR calculado no treino
 
-Motivo: garantir que a preparacao terminou em estado realmente apto para modelagem.
+Motivo: controlar o impacto de outliers sem remove-los, mantendo a janela de aprendizado restrita ao treino.
 
-## 13. Limitacoes assumidas nesta fase
+### Escolha 8: validar a base final explicitamente
+
+Motivo: garantir que a preparacao terminou em estado realmente apto para modelagem, com evidencias documentadas.
+
+## 15. Limitacoes assumidas nesta fase
 
 Algumas decisoes foram intencionalmente simples porque o foco era baseline:
 
@@ -347,10 +375,11 @@ Algumas decisoes foram intencionalmente simples porque o foco era baseline:
 - nao houve engenharia de features mais sofisticada
 - nao foi implementado pipeline reutilizavel ainda
 - a governanca temporal foi apontada, mas nao operacionalizada no notebook
+- o diagnostico de fairness e inicial e precisa ser aprofundado nas fases seguintes
 
-Esses pontos nao invalidam a EDA. Eles apenas delimitam o escopo da Fase 1.
+Esses pontos nao invalidam a EDA. Eles apenas delimitam o escopo da Fase 1 e mostram consciencia sobre o que ainda falta.
 
-## 14. Proxima etapa recomendada
+## 16. Proxima etapa recomendada
 
 Com a base preparada e validada, o passo seguinte e usar exatamente o mesmo criterio de preparo no notebook de baselines e, depois, transformar esse fluxo em pipeline reutilizavel.
 
@@ -360,3 +389,8 @@ Em termos praticos, a sequencia recomendada e:
 2. comparar modelos por AUC-ROC, PR-AUC e top-K
 3. consolidar o preparo em pipeline reprodutivel
 4. documentar o modelo final no model card
+
+## 17. Referencias
+
+- Yildirim, S. (2020). *A Practical Guide for Exploratory Data Analysis — Churn Dataset*. Towards Data Science.
+- Santos, M. (2023). *A Data Scientist's Essential Guide to Exploratory Data Analysis*. Towards Data Science.
