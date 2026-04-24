@@ -24,14 +24,12 @@ from __future__ import annotations
 
 import getpass
 import hashlib
-import os
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import mlflow
-
 
 # ---------------------------------------------------------------------------
 # Tags e metadados

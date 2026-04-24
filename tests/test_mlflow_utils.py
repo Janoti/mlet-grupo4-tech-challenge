@@ -1,6 +1,5 @@
 """Testes para helpers MLflow."""
 
-import pytest
 
 from churn_prediction.mlflow_utils import (
     build_standard_tags,
