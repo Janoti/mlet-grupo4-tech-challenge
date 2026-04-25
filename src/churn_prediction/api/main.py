@@ -3,6 +3,7 @@
 Endpoints:
     GET  /health  — health check e status do modelo
     POST /predict — predição de churn para um cliente
+    GET  /metrics — métricas Prometheus para monitoramento
 """
 
 from __future__ import annotations
@@ -17,7 +18,15 @@ from pathlib import Path
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from churn_prediction.api.middleware import prometheus_middleware
+from churn_prediction.api.prometheus_metrics import (
+    model_info,
+    model_loaded,
+    predictions_total,
+)
 from churn_prediction.api.schemas import (
     CustomerFeatures,
     HealthResponse,
@@ -51,6 +60,7 @@ def load_model(path: str | None = None) -> None:
     path = path or MODEL_PATH
     if not Path(path).exists():
         logger.warning("Modelo não encontrado em %s", path)
+        model_loaded.set(0)
         return
     MODEL_STATE["pipeline"] = joblib.load(path)
 
@@ -68,6 +78,9 @@ def load_model(path: str | None = None) -> None:
     else:
         MODEL_STATE["model_version"] = Path(path).stem
         logger.info("Modelo carregado: %s (sem champion_metadata.json)", path)
+
+    model_loaded.set(1)
+    model_info.info({"version": MODEL_STATE["model_version"] or "unknown"})
 
 
 @asynccontextmanager
@@ -90,6 +103,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Registra middleware Prometheus para instrumentação automática
+app.middleware("http")(prometheus_middleware)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +170,9 @@ async def predict(customer: CustomerFeatures):
     else:
         risk = "baixo"
 
+    # Registra métrica Prometheus de predição por risk_level
+    predictions_total.labels(risk_level=risk).inc()
+
     latency_ms = (time.time() - start) * 1000
 
     # Log estruturado da requisição (para monitoramento)
@@ -172,6 +191,15 @@ async def predict(customer: CustomerFeatures):
     )
 
 
+@app.get("/metrics", include_in_schema=False, tags=["Monitoramento"])
+async def metrics():
+    """Endpoint Prometheus — expõe métricas em formato texto para scraping."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.get("/", tags=["Info"])
 async def root():
     """Informações sobre a API."""
@@ -181,4 +209,5 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "predict": "/predict (POST)",
+        "metrics": "/metrics",
     }

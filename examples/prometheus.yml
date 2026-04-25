@@ -1,0 +1,27 @@
+# Configuração Prometheus para scraping da API Churn Prediction
+#
+# Uso:
+#   docker run -d -p 9090:9090 \
+#     -v $(pwd)/examples/prometheus.yml:/etc/prometheus/prometheus.yml \
+#     prom/prometheus:latest
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'telecom-churn'
+    environment: 'development'
+
+scrape_configs:
+  - job_name: 'churn-api'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ['localhost:8000']
+        labels:
+          service: 'churn-prediction'
+          version: '1.0'
+
+    # Em Docker: use host.docker.internal:8000 em vez de localhost:8000
+    # Em Kubernetes: use o nome do Service (ex: churn-api.default.svc:8000)

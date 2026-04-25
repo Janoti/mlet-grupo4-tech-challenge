@@ -457,6 +457,7 @@ Resposta esperada:
 | `GET` | `/` | Informações gerais da API |
 | `GET` | `/health` | Status da API e do modelo carregado |
 | `POST` | `/predict` | Predição de churn (probabilidade, classe, risco) |
+| `GET` | `/metrics` | Métricas Prometheus (formato texto) |
 | `GET` | `/docs` | Swagger UI (documentação interativa) |
 | `GET` | `/redoc` | ReDoc (documentação formatada) |
 
@@ -465,9 +466,40 @@ Observações:
 - Campos inválidos retornam HTTP 422 com detalhes do erro (validação Pydantic)
 - A variável `CHURN_MODEL_PATH` permite apontar para outro modelo serializado
 
-## 14. Monitoramento de drift
+## 14. Métricas Prometheus e Monitoramento
 
-### 14.1 Passo a passo para simulação de drift
+A API expõe métricas Prometheus no endpoint `GET /metrics` para monitoramento em produção.
+
+### 14.1 Métricas disponíveis
+
+| Métrica | Tipo | Descrição |
+|---------|------|-----------|
+| `churn_api_http_requests_total` | Counter | Requisições HTTP por endpoint, método e status |
+| `churn_api_http_request_duration_seconds` | Histogram | Latência das requisições |
+| `churn_api_predictions_total` | Counter | Predições por faixa de risco |
+| `churn_api_model_loaded` | Gauge | Status do modelo (1=carregado) |
+
+### 14.2 Acessar métricas
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+### 14.3 Prometheus + Grafana
+
+```promql
+# Throughput (req/s)
+rate(churn_api_http_requests_total[1m])
+
+# Latência P95
+histogram_quantile(0.95, rate(churn_api_http_request_duration_seconds_bucket[5m]))
+```
+
+Guia completo: [docs/PROMETHEUS_SETUP.md](docs/PROMETHEUS_SETUP.md) | Exemplo de config: [examples/prometheus.yml](examples/prometheus.yml)
+
+## 15. Monitoramento de drift
+
+### 15.1 Passo a passo para simulação de drift
 
 Pré-requisito: a API deve estar rodando (seção 13).
 
@@ -481,7 +513,7 @@ poetry run python scripts/simulate_drift.py --url http://localhost:8000 --n-requ
 # Os resultados são salvos em logs/drift_simulation.jsonl
 ```
 
-### 14.2 Análise de drift
+### 15.2 Análise de drift
 
 ```bash
 # Compara dados de treino com logs de produção
@@ -506,7 +538,7 @@ Razão de drift: 20.0%
 ======================================================================
 ```
 
-### 14.3 Testes estatísticos utilizados
+### 15.3 Testes estatísticos utilizados
 
 | Teste | Tipo de feature | Interpretação |
 |-------|----------------|---------------|
@@ -514,14 +546,14 @@ Razão de drift: 20.0%
 | **Chi² (Qui-Quadrado)** | Categóricas | p < 0.05 → drift detectado |
 | **PSI** | Numéricas | < 0.10 OK · 0.10-0.20 investigar · > 0.20 retreinar |
 
-## 15. CI/CD (GitHub Actions)
+## 16. CI/CD (GitHub Actions)
 
 Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 1. **Quality**: lint (ruff) + pytest em todo push/PR
 2. **Train**: gera dados → seleciona champion → exporta modelo (apenas main)
 3. **Docker**: valida build da imagem (apenas main)
 
-## 16. Proximos passos
+## 17. Proximos passos
 
 1. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
 2. Definir corte operacional por top-K para retencao.
@@ -530,9 +562,9 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 5. Deploy em cloud (Render, AWS, Azure) com autoscaling.
 6. Integrar SHAP/LIME para explainability do modelo.
 
-## 17. Resultados dos Baselines e Interpretação
+## 18. Resultados dos Baselines e Interpretação
 
-### 17.1 Desempenho dos modelos
+### 18.1 Desempenho dos modelos
 
 | Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
 |-------------------------------|----------|-------|---------|--------|------------------|
@@ -547,7 +579,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
 - O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
 
-### 17.2 Diagnóstico de Overfitting
+### 18.2 Diagnóstico de Overfitting
 
 | Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
 |---------------|-------------------------------|------------------------------------|
@@ -557,7 +589,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 **Interpretação:**
 - O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
 
-### 17.3 Comparação de Penalizações (L1, L2, ElasticNet)
+### 18.3 Comparação de Penalizações (L1, L2, ElasticNet)
 
 | Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
 |-------------|----------|------------|---------------|
@@ -570,7 +602,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
 - Mantém-se L2 como referência pela simplicidade.
 
-### 17.4 Fairness por Grupo Sensível
+### 18.4 Fairness por Grupo Sensível
 
 #### `log_reg` (sem mitigação)
 
@@ -595,7 +627,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
 - Os gaps de outros atributos permanecem sem tratamento.
 
-### 17.5 Métrica de Negócio
+### 18.5 Métrica de Negócio
 
 ```
 valor_liquido = TP x R$500 - (TP + FP) x R$50
@@ -608,9 +640,9 @@ valor_liquido = TP x R$500 - (TP + FP) x R$50
 **Resumo:**
 O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
-## 18. Resultados do MLP e Comparação Completa
+## 19. Resultados do MLP e Comparação Completa
 
-### 18.1 Desempenho comparativo (todos os modelos)
+### 19.1 Desempenho comparativo (todos os modelos)
 
 | Modelo               | Accuracy | F1     | ROC-AUC | PR-AUC | Valor Líquido    |
 |----------------------|----------|--------|---------|--------|------------------|
@@ -625,7 +657,7 @@ O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já con
 - ROC-AUC e F1 do MLP ficam apenas 0.004 abaixo do GradientBoosting — diferença não significativa considerando o ganho operacional.
 - O MLP confirma a robustez do pipeline: mesmo sem tuning extenso, atinge resultado competitivo.
 
-### 18.2 Feature Importance (RF e Gradient Boosting)
+### 19.2 Feature Importance (RF e Gradient Boosting)
 
 Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
 
@@ -644,6 +676,6 @@ Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
 - Choques financeiros (`invoice_shock_flag`, `price_increase_last_3m`) e preço do plano também influenciam significativamente.
 - Essas features devem ser priorizadas em regras de negócio e campanhas de retenção.
 
-## 19. Contato
+## 20. Contato
 
 Grupo 4 - Tech Challenge FIAP
