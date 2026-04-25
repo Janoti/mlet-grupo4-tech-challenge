@@ -1,0 +1,110 @@
+{
+  "champion_run_id": "7d2323f79a4a4c2b80f4fb55c04e7ac2",
+  "champion_run_name": "mlp_pytorch_v1",
+  "registry_version": 5,
+  "selection_metric": "valor_liquido",
+  "selection_tiebreaker": "roc_auc",
+  "metrics": {
+    "valor_liquido": 1194000.0,
+    "roc_auc": 0.8772367596678551,
+    "f1": 0.7430819316332067,
+    "pr_auc": 0.8463786918002218,
+    "accuracy": 0.8069317023445464
+  },
+  "dataset_version": "unknown",
+  "exported_at": "2026-04-24T23:18:53.686374+00:00",
+  "all_candidates": [
+    {
+      "run_name": "mlp_pytorch_v1",
+      "valor_liquido": 1194000.0,
+      "roc_auc": 0.8772367596678551,
+      "f1": 0.7430819316332067,
+      "pr_auc": 0.8463786918002218,
+      "accuracy": 0.8069317023445464
+    },
+    {
+      "run_name": "log_reg",
+      "valor_liquido": 1190800.0,
+      "roc_auc": 0.8783352667708436,
+      "f1": 0.7425231103860794,
+      "pr_auc": 0.848020738075792,
+      "accuracy": 0.8069317023445464
+    },
+    {
+      "run_name": "log_reg",
+      "valor_liquido": 1187850.0,
+      "roc_auc": 0.8736021992806567,
+      "f1": 0.7431842966194111,
+      "pr_auc": 0.8418332637132339,
+      "accuracy": 0.8079706451941698
+    },
+    {
+      "run_name": "log_reg_mitigated_equalized_odds",
+      "valor_liquido": 1185500.0,
+      "f1": 0.7362874898676034,
+      "accuracy": 0.801019367991845
+    },
+    {
+      "run_name": "gradient_boosting",
+      "valor_liquido": 1184250.0,
+      "roc_auc": 0.8820878746900214,
+      "f1": 0.7493082457111234,
+      "pr_auc": 0.851720887476302,
+      "accuracy": 0.8153093466517175
+    },
+    {
+      "run_name": "gradient_boosting",
+      "valor_liquido": 1183300.0,
+      "roc_auc": 0.8815204976880592,
+      "f1": 0.7473742399115534,
+      "pr_auc": 0.8540824541582153,
+      "accuracy": 0.8136595310907238
+    },
+    {
+      "run_name": "log_reg_mitigated_equalized_odds",
+      "valor_liquido": 1180950.0,
+      "f1": 0.7410445720535959,
+      "accuracy": 0.8069513811028437
+    },
+    {
+      "run_name": "mlp_pytorch_v1",
+      "valor_liquido": 1173650.0,
+      "roc_auc": 0.872352443348893,
+      "f1": 0.7380821917808219,
+      "pr_auc": 0.8411581812278268,
+      "accuracy": 0.8051167057384568
+    },
+    {
+      "run_name": "random_forest",
+      "valor_liquido": 1117800.0,
+      "roc_auc": 0.8585334241902891,
+      "f1": 0.719069637102424,
+      "pr_auc": 0.8205635255536637,
+      "accuracy": 0.7956375496891245
+    },
+    {
+      "run_name": "random_forest",
+      "valor_liquido": 1103750.0,
+      "roc_auc": 0.8609117356464466,
+      "f1": 0.7154379510400453,
+      "pr_auc": 0.8225038365063887,
+      "accuracy": 0.7950050968399592
+    },
+    {
+      "run_name": "dummy_stratified",
+      "valor_liquido": 561850.0,
+      "roc_auc": 0.5045949758950086,
+      "f1": 0.3936966513460276,
+      "pr_auc": 0.3959054730537632,
+      "accuracy": 0.5293577981651376
+    },
+    {
+      "run_name": "dummy_stratified",
+      "valor_liquido": 522650.0,
+      "roc_auc": 0.49184781541362593,
+      "f1": 0.37513227513227515,
+      "pr_auc": 0.38690417274409533,
+      "accuracy": 0.518499643257568
+    }
+  ]
+}
