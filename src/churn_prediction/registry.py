@@ -35,11 +35,51 @@ class PyTorchChurnWrapper:
     Empacota o modelo PyTorch + preprocessor sklearn fitado em um único
     objeto serializável com joblib, permitindo que a API FastAPI use a
     mesma interface independente do flavor do champion.
+
+    Usa __reduce__ para contornar problemas de pickling do modelo PyTorch
+    salvando apenas state_dict + arquitectura, não a instância direta.
     """
 
     def __init__(self, model: nn.Module, preprocessor):
         self.model = model
         self.preprocessor = preprocessor
+        self._model_state_dict = None
+        self._model_config = None
+
+    def _save_state(self):
+        """Guarda state_dict e config para serialização."""
+        from churn_prediction.model import MLP
+
+        self._model_state_dict = self.model.state_dict()
+        # Extrair dimensões do modelo
+        first_layer = self.model.net[0]
+        input_dim = first_layer.in_features
+        self._model_config = {
+            "input_dim": input_dim,
+        }
+
+    def _load_state(self):
+        """Reconstrói o modelo a partir do state_dict e config."""
+        from churn_prediction.model import MLP
+
+        if self._model_state_dict is None:
+            return  # Modelo já carregado (pós-unpickle)
+
+        self.model = MLP(**self._model_config)
+        self.model.load_state_dict(self._model_state_dict)
+        self._model_state_dict = None
+        self._model_config = None
+
+    def __reduce__(self):
+        """Serialização customizada para joblib/pickle.
+
+        Salva state_dict + config em vez da instância do modelo PyTorch.
+        """
+        self._save_state()
+        return (
+            _rebuild_pytorch_wrapper,
+            (self._model_state_dict, self._model_config, self.preprocessor),
+        )
 
     def predict_proba(self, X) -> np.ndarray:
         if isinstance(X, pd.DataFrame):
@@ -55,6 +95,16 @@ class PyTorchChurnWrapper:
 
     def predict(self, X) -> np.ndarray:
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+
+
+def _rebuild_pytorch_wrapper(state_dict, config, preprocessor):
+    """Função helper para desserializar PyTorchChurnWrapper."""
+    from churn_prediction.model import MLP
+
+    model = MLP(**config)
+    model.load_state_dict(state_dict)
+    wrapper = PyTorchChurnWrapper(model, preprocessor)
+    return wrapper
 
 
 def find_champion(
@@ -247,6 +297,9 @@ def _load_champion_sklearn(champion: dict, data: dict) -> object:
 
 def _load_champion_pytorch(champion: dict, data: dict) -> PyTorchChurnWrapper:
     """Carrega MLP PyTorch do MLflow e empacota com preprocessor sklearn."""
+    # Importar MLP para garantir que a classe está disponível para desserialização
+    from churn_prediction.model import MLP  # noqa: F401
+
     model_uri = f"runs:/{champion['run_id']}/mlp_model"
     pytorch_model = mlflow.pytorch.load_model(model_uri)
 
