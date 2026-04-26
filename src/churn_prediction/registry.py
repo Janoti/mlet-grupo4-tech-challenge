@@ -48,8 +48,6 @@ class PyTorchChurnWrapper:
 
     def _save_state(self):
         """Guarda state_dict e config para serialização."""
-        from churn_prediction.model import MLP
-
         self._model_state_dict = self.model.state_dict()
         # Extrair dimensões do modelo
         first_layer = self.model.net[0]
