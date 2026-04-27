@@ -1,6 +1,69 @@
-# Predição de Churn em Telecom - Tech Challenge (Grupo 4)
+# Predição de Churn em Telecom — Tech Challenge (Grupo 4)
+
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.3-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![MLflow](https://img.shields.io/badge/MLflow-2.14-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5-F7931E?logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
+[![Ruff](https://img.shields.io/badge/linted-ruff-261230?logo=ruff&logoColor=white)](https://docs.astral.sh/ruff/)
+[![Tests](https://img.shields.io/badge/tests-81%20passed-brightgreen)](tests/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Projeto de Machine Learning para prever churn em telecom, com pipeline robusto, automação, rastreabilidade e foco em métricas de negócio.
+
+## Arquitetura do pipeline
+
+```mermaid
+flowchart TD
+    A[data/raw/<br>telecom_churn_base_extended.csv] --> B[notebooks/01_eda.ipynb<br>EDA completa]
+    B --> C[notebooks/02_baselines.ipynb<br>Dummy + LogReg + RF + GB]
+    C --> D[notebooks/03_mlp_pytorch.ipynb<br>MLP PyTorch]
+    C -- splits pré-processados --> D
+    C --> E[(MLflow<br>churn-baselines)]
+    D --> F[(MLflow<br>churn-mlp-pytorch)]
+    E --> G[scripts/export_model.py<br>+ Model Registry]
+    F --> G
+    G --> H[models/churn_pipeline.joblib<br>champion automático]
+    H --> I[FastAPI<br>/predict /health]
+    I --> J[Docker<br>churn-api:8000]
+    J --> K[scripts/simulate_drift.py<br>+ check_drift.py<br>KS / Chi² / PSI]
+
+    style E fill:#0194E2,color:#fff
+    style F fill:#0194E2,color:#fff
+    style I fill:#009688,color:#fff
+    style J fill:#2496ED,color:#fff
+```
+
+## Fluxo de requisição na API
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Middleware as LatencyMiddleware
+    participant API as FastAPI
+    participant Pipeline as sklearn Pipeline
+    participant Model as LogisticRegression
+
+    Client->>Middleware: POST /predict (JSON)
+    Middleware->>Middleware: start = perf_counter()
+    Middleware->>API: forward request
+
+    API->>API: valida schema (Pydantic)
+    alt schema inválido
+        API-->>Middleware: HTTP 422
+    else schema ok
+        API->>Pipeline: transform features
+        Pipeline->>Model: predict_proba(X)
+        Model-->>Pipeline: probability
+        Pipeline-->>API: churn_probability
+        API->>API: classifica risk_level
+        API-->>Middleware: HTTP 200 + JSON
+    end
+
+    Middleware->>Middleware: latency_ms = perf_counter() - start
+    Middleware->>Middleware: inject X-Process-Time-Ms header
+    Middleware-->>Client: response
+```
 
 ## Status atual
 
