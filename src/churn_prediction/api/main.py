@@ -3,6 +3,7 @@
 Endpoints:
     GET  /health  — health check e status do modelo
     POST /predict — predição de churn para um cliente
+    GET  /metrics — métricas Prometheus para monitoramento
 """
 
 from __future__ import annotations
@@ -16,10 +17,19 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from churn_prediction.api.middleware import observability_middleware
+from churn_prediction.api.prometheus_metrics import (
+    model_info,
+    model_loaded,
+    normalize_gender,
+    normalize_plan_type,
+    prediction_probability,
+    predictions_total,
+)
 from churn_prediction.api.schemas import (
     CustomerFeatures,
     HealthResponse,
@@ -53,6 +63,7 @@ def load_model(path: str | None = None) -> None:
     path = path or MODEL_PATH
     if not Path(path).exists():
         logger.warning("Modelo não encontrado em %s", path)
+        model_loaded.set(0)
         return
     MODEL_STATE["pipeline"] = joblib.load(path)
 
@@ -71,34 +82,15 @@ def load_model(path: str | None = None) -> None:
         MODEL_STATE["model_version"] = Path(path).stem
         logger.info("Modelo carregado: %s (sem champion_metadata.json)", path)
 
+    model_loaded.set(1)
+    model_info.info({"version": MODEL_STATE["model_version"] or "unknown"})
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Carrega modelo na inicialização da aplicação."""
     load_model()
     yield
-
-
-# ---------------------------------------------------------------------------
-# Middleware de latência
-# ---------------------------------------------------------------------------
-
-class LatencyMiddleware(BaseHTTPMiddleware):
-    """Mede latência total de cada requisição e injeta header X-Process-Time-Ms."""
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        start = time.perf_counter()
-        response = await call_next(request)
-        latency_ms = (time.perf_counter() - start) * 1000
-        response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
-        logger.info(
-            '{"event":"http_request","method":"%s","path":"%s","status":%d,"latency_ms":%.2f}',
-            request.method,
-            request.url.path,
-            response.status_code,
-            latency_ms,
-        )
-        return response
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +107,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(LatencyMiddleware)
+# Único middleware: mede latência uma vez e propaga para header HTTP,
+# log estruturado e métricas Prometheus.
+app.middleware("http")(observability_middleware)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +139,8 @@ async def predict(customer: CustomerFeatures):
             status_code=503,
             detail="Modelo não carregado. Verifique CHURN_MODEL_PATH.",
         )
+
+    start = time.time()
 
     # Converte input Pydantic → DataFrame
     data = customer.model_dump()
@@ -178,10 +174,24 @@ async def predict(customer: CustomerFeatures):
     else:
         risk = "baixo"
 
+    # Registra métrica Prometheus segmentada por risco, perfil e decisão
+    predictions_total.labels(
+        risk_level=risk,
+        gender=normalize_gender(customer.gender),
+        plan_type=normalize_plan_type(customer.plan_type),
+        churn_prediction=str(prediction),
+    ).inc()
+    # Histogram da probabilidade — base para detecção de drift no dashboard de saúde
+    prediction_probability.observe(float(proba))
+
+    latency_ms = (time.time() - start) * 1000
+
+    # Log estruturado da requisição (para monitoramento)
     logger.info(
-        '{"event":"prediction","churn_prob":%.4f,"risk":"%s"}',
+        '{"event":"prediction","churn_prob":%.4f,"risk":"%s","latency_ms":%.1f}',
         proba,
         risk,
+        latency_ms,
     )
 
     return PredictionResponse(
@@ -189,6 +199,15 @@ async def predict(customer: CustomerFeatures):
         churn_prediction=prediction,
         risk_level=risk,
         model_version=MODEL_STATE["model_version"] or "unknown",
+    )
+
+
+@app.get("/metrics", include_in_schema=False, tags=["Monitoramento"])
+async def metrics():
+    """Endpoint Prometheus — expõe métricas em formato texto para scraping."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
     )
 
 
@@ -201,4 +220,5 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "predict": "/predict (POST)",
+        "metrics": "/metrics",
     }

@@ -1,6 +1,7 @@
 services:
   churn-api:
     build: .
+    container_name: churn-api
     ports:
       - "8000:8000"
     dns:
@@ -19,10 +20,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - churn-net
     restart: unless-stopped
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.22.4
+    container_name: mlflow
     ports:
       - "5000:5000"
     command: >
@@ -32,4 +36,57 @@ services:
       --port 5000
     volumes:
       - ./mlruns:/mlruns:ro
+    networks:
+      - churn-net
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.11.2
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+      - --web.enable-lifecycle
+    volumes:
+      - ./grafana-prometheus/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - churn-api
+    networks:
+      - churn-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=mletg4
+      - GF_SECURITY_ADMIN_PASSWORD=mletg4
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_LOG_LEVEL=info
+    volumes:
+      - ./grafana-prometheus/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana-prometheus/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - churn-net
+    restart: unless-stopped
+
+networks:
+  churn-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:

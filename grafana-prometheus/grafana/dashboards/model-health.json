@@ -1,0 +1,352 @@
+{
+  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+  "description": "Dashboard de saúde do modelo de churn — monitora prediction drift, class balance, qualidade dos inputs e gera recomendação de retreino baseada em sinais compostos.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Status do modelo",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 200,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Modelo carregado",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 3, "x": 0, "y": 1},
+      "id": 201,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "OFF", "color": "red"}}}, {"type": "value", "options": {"1": {"text": "ON", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "targets": [{"expr": "churn_api_model_loaded", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Versão",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 3, "y": 1},
+      "id": 202,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^version$/", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}, "overrides": []},
+      "targets": [{"expr": "churn_api_model_info", "format": "table", "instant": true, "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Predições (1h)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 7, "y": 1},
+      "id": 203,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "blue"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(churn_api_predictions_total[1h]))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Predições (24h)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 11, "y": 1},
+      "id": 204,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "blue"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(churn_api_predictions_total[24h]))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Saúde do modelo",
+      "description": "Score composto (0=ok, 3=crítico) somando 3 sinais binários: drift de taxa de churn (>15pp), excesso de inputs unknown (>10%), concentração de risco alto (>60%).",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 9, "x": 15, "y": 1},
+      "id": 205,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "OK — sem sinais de drift", "color": "green"}}},
+            {"type": "value", "options": {"1": {"text": "ATENÇÃO — 1 sinal alterado", "color": "yellow"}}},
+            {"type": "value", "options": {"2": {"text": "ALERTA — 2 sinais alterados", "color": "orange"}}},
+            {"type": "value", "options": {"3": {"text": "RETREINO RECOMENDADO", "color": "red"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "orange", "value": 2}, {"color": "red", "value": 3}]}
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "(abs(((sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[1h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[1h])) or vector(0), 1)) - ((sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[24h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[24h])) or vector(0), 1))) > bool 0.15) + (((sum(increase(churn_api_predictions_total{gender=\"unknown\"}[1h])) or vector(0)) + (sum(increase(churn_api_predictions_total{plan_type=~\"unknown|outro\"}[1h])) or vector(0))) / clamp_min(2 * (sum(increase(churn_api_predictions_total[1h])) or vector(0)), 1) > bool 0.10) + ((sum(increase(churn_api_predictions_total{risk_level=\"alto\"}[1h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[1h])) or vector(0), 1) > bool 0.60)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Prediction drift — distribuição da probabilidade",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 210,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "heatmap",
+      "title": "Heatmap — distribuição de churn_probability ao longo do tempo",
+      "description": "Cada coluna é uma janela de 5min. Altura mostra concentração nos buckets de probabilidade. Padrões verticais estáveis = saudável; deslocamento horizontal = drift.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 10, "w": 16, "x": 0, "y": 6},
+      "id": 211,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {"mode": "scheme", "scheme": "Spectral", "steps": 64, "exponent": 0.5, "reverse": true},
+        "yAxis": {"axisPlacement": "left", "decimals": 2, "unit": "short"},
+        "tooltip": {"show": true, "yHistogram": false},
+        "legend": {"show": true},
+        "exemplars": {"color": "rgba(255,0,255,0.7)"},
+        "filterValues": {"le": 1e-9}
+      },
+      "fieldConfig": {"defaults": {"custom": {"scaleDistribution": {"type": "linear"}, "hideFrom": {"tooltip": false, "viz": false, "legend": false}}}, "overrides": []},
+      "targets": [
+        {
+          "expr": "sum by (le) (increase(churn_api_prediction_probability_bucket[5m]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "p50 prob (1h)",
+      "description": "Mediana da probabilidade de churn nas últimas 1h. Se subir muito, o modelo está mais 'pessimista' que antes.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 16, "y": 6},
+      "id": 212,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.4}, {"color": "red", "value": 0.6}]}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.50, sum by (le) (rate(churn_api_prediction_probability_bucket[1h])))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "p90 prob (1h)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 20, "y": 6},
+      "id": 213,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.7}, {"color": "red", "value": 0.85}]}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.90, sum by (le) (rate(churn_api_prediction_probability_bucket[1h])))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Δ p50 (1h vs 24h)",
+      "description": "Diferença entre a mediana de 1h e a mediana de 24h. >10pp em valor absoluto sugere drift relevante.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 16, "y": 11},
+      "id": 214,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.10}, {"color": "red", "value": 0.20}]}}, "overrides": []},
+      "targets": [
+        {
+          "expr": "abs(histogram_quantile(0.50, sum by (le) (rate(churn_api_prediction_probability_bucket[1h]))) - histogram_quantile(0.50, sum by (le) (rate(churn_api_prediction_probability_bucket[24h]))))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Δ p90 (1h vs 24h)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 4, "x": 20, "y": 11},
+      "id": 215,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.10}, {"color": "red", "value": 0.20}]}}, "overrides": []},
+      "targets": [
+        {
+          "expr": "abs(histogram_quantile(0.90, sum by (le) (rate(churn_api_prediction_probability_bucket[1h]))) - histogram_quantile(0.90, sum by (le) (rate(churn_api_prediction_probability_bucket[24h]))))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Class balance — distribuição de risco",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 16},
+      "id": 220,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Proporção de risk_level no tempo (área 100%)",
+      "description": "Stack normalizado para 100%. Se a faixa 'alto' começar a dominar, o modelo está predizendo churn massivamente — sinal de drift ou ataque.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
+      "id": 221,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "min": 0,
+          "max": 1,
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 50, "stacking": {"mode": "percent", "group": "A"}}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "alto"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "medio"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+          {"matcher": {"id": "byName", "options": "baixo"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum by (risk_level) (rate(churn_api_predictions_total[5m]))", "legendFormat": "{{risk_level}}", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Taxa de churn predita — 1h vs 24h (baseline)",
+      "description": "Linha 1h (sólida) é a observação atual. Linha 24h (pontilhada) é o baseline. Distância entre elas indica drift de class balance.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
+      "id": 222,
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit", "decimals": 2, "min": 0, "max": 1, "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "lineWidth": 2}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Baseline 24h"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}]},
+          {"matcher": {"id": "byName", "options": "Janela 1h"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "min"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {
+          "expr": "sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[1h])) / clamp_min(sum(increase(churn_api_predictions_total[1h])), 1)",
+          "legendFormat": "Janela 1h",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[24h])) / clamp_min(sum(increase(churn_api_predictions_total[24h])), 1)",
+          "legendFormat": "Baseline 24h",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Input drift — qualidade dos dados de entrada",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 26},
+      "id": 230,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "% inputs com gender / plan_type unknown ou outro",
+      "description": "Crescimento dessa série indica que o pipeline está recebendo dados fora do schema treinado — categorias novas, missing massivo ou bug no upstream.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 27},
+      "id": 231,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "min": 0,
+          "max": 1,
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "lineWidth": 2}
+        },
+        "overrides": []
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {
+          "expr": "sum(increase(churn_api_predictions_total{gender=\"unknown\"}[10m])) / clamp_min(sum(increase(churn_api_predictions_total[10m])), 1)",
+          "legendFormat": "gender=unknown",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(churn_api_predictions_total{plan_type=~\"unknown|outro\"}[10m])) / clamp_min(sum(increase(churn_api_predictions_total[10m])), 1)",
+          "legendFormat": "plan_type=unknown|outro",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Erros 4xx / 5xx (schema violations + falhas)",
+      "description": "Aumento de 4xx (especialmente 422) significa payloads inválidos — possível mudança no contrato do cliente. 5xx indica problemas no servidor/modelo.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 27},
+      "id": 232,
+      "fieldConfig": {
+        "defaults": {"unit": "reqps", "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal", "group": "A"}}},
+        "overrides": [
+          {"matcher": {"id": "byRegexp", "options": "^4.*"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+          {"matcher": {"id": "byRegexp", "options": "^5.*"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum by (status_code) (rate(churn_api_http_requests_total{status_code=~\"4..|5..\"}[5m]))", "legendFormat": "{{status_code}}", "refId": "A"}
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Sinais de retreino (decisão)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 35},
+      "id": 240,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Matriz de sinais — gates de retreino",
+      "description": "Cada linha é um critério com seu valor atual, threshold e status. Use como checklist antes de decidir disparar pipeline de retreino.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 36},
+      "id": 241,
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "md"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "center", "displayMode": "auto"}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Status"}, "properties": [{"id": "custom.displayMode", "value": "color-background"}, {"id": "mappings", "value": [{"type": "value", "options": {"0": {"text": "OK", "color": "green"}, "1": {"text": "ALERTA", "color": "red"}}}]}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}]},
+          {"matcher": {"id": "byName", "options": "Time"}, "properties": [{"id": "custom.hidden", "value": true}]}
+        ]
+      },
+      "targets": [
+        {
+          "expr": "label_replace(label_replace(abs(((sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[1h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[1h])) or vector(0), 1)) - ((sum(increase(churn_api_predictions_total{churn_prediction=\"1\"}[24h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[24h])) or vector(0), 1))) > bool 0.15, \"sinal\", \"1. Drift de taxa de churn (>15pp 1h vs 24h)\", \"\", \"\"), \"threshold\", \"0.15\", \"\", \"\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "label_replace(label_replace(((sum(increase(churn_api_predictions_total{gender=\"unknown\"}[1h])) or vector(0)) + (sum(increase(churn_api_predictions_total{plan_type=~\"unknown|outro\"}[1h])) or vector(0))) / clamp_min(2 * (sum(increase(churn_api_predictions_total[1h])) or vector(0)), 1) > bool 0.10, \"sinal\", \"2. Inputs unknown (>10% gender+plan)\", \"\", \"\"), \"threshold\", \"0.10\", \"\", \"\")",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "label_replace(label_replace((sum(increase(churn_api_predictions_total{risk_level=\"alto\"}[1h])) or vector(0)) / clamp_min(sum(increase(churn_api_predictions_total[1h])) or vector(0), 1) > bool 0.60, \"sinal\", \"3. Concentração de risco alto (>60% das predições)\", \"\", \"\"), \"threshold\", \"0.60\", \"\", \"\")",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        }
+      ],
+      "transformations": [
+        {"id": "merge", "options": {}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "job": true, "instance": true}, "indexByName": {"sinal": 0, "threshold": 1, "Value #A": 2, "Value #B": 2, "Value #C": 2}, "renameByName": {"sinal": "Sinal", "threshold": "Threshold", "Value #A": "Status", "Value #B": "Status", "Value #C": "Status"}}}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["churn", "ml", "drift", "model-health", "retraining"],
+  "templating": {"list": []},
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Churn — Saúde do Modelo (drift & retreino)",
+  "uid": "churn-model-health",
+  "version": 1,
+  "weekStart": ""
+}
