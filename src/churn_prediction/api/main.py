@@ -25,6 +25,9 @@ from churn_prediction.api.middleware import prometheus_middleware
 from churn_prediction.api.prometheus_metrics import (
     model_info,
     model_loaded,
+    normalize_gender,
+    normalize_plan_type,
+    prediction_probability,
     predictions_total,
 )
 from churn_prediction.api.schemas import (
@@ -170,8 +173,15 @@ async def predict(customer: CustomerFeatures):
     else:
         risk = "baixo"
 
-    # Registra métrica Prometheus de predição por risk_level
-    predictions_total.labels(risk_level=risk).inc()
+    # Registra métrica Prometheus segmentada por risco, perfil e decisão
+    predictions_total.labels(
+        risk_level=risk,
+        gender=normalize_gender(customer.gender),
+        plan_type=normalize_plan_type(customer.plan_type),
+        churn_prediction=str(prediction),
+    ).inc()
+    # Histogram da probabilidade — base para detecção de drift no dashboard de saúde
+    prediction_probability.observe(float(proba))
 
     latency_ms = (time.time() - start) * 1000
 

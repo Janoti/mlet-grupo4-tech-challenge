@@ -88,8 +88,14 @@ mlet-grupo4-tech-challenge/
 │   ├── test_schema.py           # Validação Pydantic + data cleaning
 │   ├── test_api.py              # Endpoints com mocks
 │   └── test_registry.py         # Seleção e exportação do champion
+├── grafana-prometheus/          # Stack de observabilidade (provisionado)
+│   ├── prometheus/
+│   │   └── prometheus.yml       # Scrape config (alvo: churn-api:8000)
+│   └── grafana/
+│       ├── provisioning/        # Datasources e providers de dashboards
+│       └── dashboards/          # JSON dos dashboards (auto-loaded)
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml           # API + MLflow + Prometheus + Grafana
 ├── pyproject.toml
 └── README.md
 ```
@@ -421,11 +427,13 @@ PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload --port 
 # 1. Exportar modelo (necessário antes do build)
 PYTHONPATH=src poetry run python scripts/export_model.py
 
-# 2. Build e start do container
-docker compose up --build churn-api
-
-# A API fica disponível em http://localhost:8000
+# 2. Build e start dos containers
+docker compose up -d --build churn-api          # apenas a API
+docker compose up -d --build                    # stack completa (API + MLflow + Prometheus + Grafana)
 ```
+
+A API fica em http://localhost:8000. Para a stack completa de observabilidade
+(Prometheus, Grafana e dashboards provisionados), veja a [seção 14](#14-observabilidade--prometheus--grafana).
 
 ### 13.3 Testar a API
 
@@ -466,36 +474,152 @@ Observações:
 - Campos inválidos retornam HTTP 422 com detalhes do erro (validação Pydantic)
 - A variável `CHURN_MODEL_PATH` permite apontar para outro modelo serializado
 
-## 14. Métricas Prometheus e Monitoramento
+## 14. Observabilidade — Prometheus + Grafana
 
-A API expõe métricas Prometheus no endpoint `GET /metrics` para monitoramento em produção.
+A API expõe métricas Prometheus em `GET /metrics` e o repositório inclui uma stack completa
+de observabilidade provisionada em `grafana-prometheus/` — sem cliques manuais para
+configurar datasource ou importar dashboards.
 
-### 14.1 Métricas disponíveis
+### 14.1 Arquitetura
 
-| Métrica | Tipo | Descrição |
-|---------|------|-----------|
-| `churn_api_http_requests_total` | Counter | Requisições HTTP por endpoint, método e status |
-| `churn_api_http_request_duration_seconds` | Histogram | Latência das requisições |
-| `churn_api_predictions_total` | Counter | Predições por faixa de risco |
-| `churn_api_model_loaded` | Gauge | Status do modelo (1=carregado) |
+```
+┌──────────────┐  scrape  ┌────────────┐  query  ┌─────────┐
+│  churn-api   │ ───────▶ │ Prometheus │ ◀────── │ Grafana │
+│  (FastAPI)   │  /metrics│  TSDB 15d  │         │  UI     │
+│   :8000      │   15s    │   :9090    │         │  :3000  │
+└──────────────┘          └────────────┘         └─────────┘
+```
 
-### 14.2 Acessar métricas
+Tudo roda na rede Docker `churn-net`, então o Prometheus resolve o serviço `churn-api`
+por DNS interno do Compose. Grafana carrega datasource e dashboards via provisioning
+automático na primeira partida.
+
+### 14.2 Como subir
 
 ```bash
-curl http://localhost:8000/metrics
+# Sobe API + MLflow + Prometheus + Grafana
+docker compose up -d --build
+
+# Validar status
+docker compose ps
 ```
 
-### 14.3 Prometheus + Grafana
+| Serviço | URL | Credencial |
+|---------|-----|------------|
+| Churn API (Swagger) | http://localhost:8000/docs | — |
+| API metrics endpoint | http://localhost:8000/metrics | — |
+| MLflow UI | http://localhost:5000 | — |
+| Prometheus | http://localhost:9090 | — |
+| Grafana | http://localhost:3000 | `mletg4` / `mletg4` |
+
+Para apenas a API + MLflow (sem observabilidade): `docker compose up -d churn-api mlflow`.
+
+### 14.3 Métricas expostas pela API
+
+| Métrica | Tipo | Labels | Descrição |
+|---------|------|--------|-----------|
+| `churn_api_http_requests_total` | Counter | `method, endpoint, status_code` | Requisições HTTP processadas |
+| `churn_api_http_request_duration_seconds` | Histogram | `method, endpoint` | Latência por request (buckets 5ms–2.5s) |
+| `churn_api_predictions_total` | Counter | `risk_level, gender, plan_type, churn_prediction` | Predições segmentadas por perfil e decisão |
+| `churn_api_prediction_probability` | Histogram | — | Distribuição da `churn_probability` (19 buckets de 0.05 a 0.95) — base do heatmap de drift |
+| `churn_api_model_loaded` | Gauge | — | 1=modelo carregado, 0=não |
+| `churn_api_model_info` | Info | `version` | Versão/identificador do modelo ativo |
+
+Os labels `gender` e `plan_type` são normalizados em `prometheus_metrics.py` para um
+conjunto fechado de valores (`{male, female, other, unknown}` e `{pre, pos, controle,
+empresarial, outro, unknown}`), controlando cardinalidade e evitando "label explosion".
+
+### 14.4 Dashboards
+
+A pasta `Churn` no Grafana traz dois dashboards complementares — o primeiro responde
+*"como está o serviço?"* e o segundo responde *"o modelo precisa de retreino?"*.
+
+#### 14.4.1 Churn API — Observabilidade
+
+URL direta: http://localhost:3000/dashboards (folder `Churn`).
+
+| Seção | Painéis | Como ler |
+|-------|---------|----------|
+| **KPIs** | Modelo carregado · Versão · Customer Profile (total) · Churner Profile (predições=1) · **Taxa de churn predita (1h)** · Throughput | Faixa de cor da taxa: verde até 20% · amarelo 20–35% · laranja 35–50% · vermelho >50% |
+| **Customer × Churner** | 4 donuts lado a lado: Gênero (customer/churner) e Plano (customer/churner) | Compare a mesma fatia entre os dois donuts. Ex.: se `male` é 50% do customer mas 70% do churner, há sinal diferencial de risco para esse grupo |
+| **Taxa de churn por dimensão (1h)** | Bargauges horizontais por gênero e por plano | Cor segue a mesma escala dos KPIs. Útil para detectar concentração de churn em um grupo específico |
+| **Risco e Volume** | Predições por risco (área empilhada) · Predições por gênero · Predições por plano · Matriz Plano×Gênero×Risco | Útil para inspeção temporal: picos súbitos em "alto" indicam mudança de comportamento ou ataque ao endpoint |
+| **Operacional** _(colapsada)_ | Latência p50/p95/p99 · Status code · Throughput por endpoint | p99 de `/predict` em produção saudável: <50ms. 5xx >0 dispara investigação |
+
+#### 14.4.2 Churn — Saúde do Modelo (drift & retreino)
+
+| Seção | Painéis | Como ler |
+|-------|---------|----------|
+| **Status do modelo** | Modelo · Versão · Predições 1h/24h · **Saúde do modelo (score 0–3)** | Score = soma de 3 sinais binários. 0=OK · 1=Atenção · 2=Alerta · 3=Retreino recomendado |
+| **Prediction drift** | **Heatmap** da `churn_probability` ao longo do tempo · p50/p90 (1h) · Δ p50/p90 (1h vs 24h) | Heatmap saudável tem padrão vertical *estável*. Se a faixa quente desloca horizontalmente, há drift de saída. \|Δ\| > 10pp é alerta amarelo, >20pp é vermelho |
+| **Class balance** | Stack 100% de `risk_level` no tempo · Taxa de churn 1h sobreposta com baseline 24h | A linha 1h afastando-se da linha 24h por mais que 15pp dispara o sinal 1 do score |
+| **Input drift** | % `gender=unknown` + % `plan_type=unknown\|outro` · Taxa de 4xx/5xx | Crescimento da taxa de unknown indica novas categorias ou bug upstream. 4xx (especialmente 422) sinaliza payloads fora do schema |
+| **Sinais de retreino** | Tabela com 3 gates (Status verde/vermelho) | Use como checklist objetivo antes de disparar pipeline de retreino |
+
+#### 14.4.3 Regra de decisão (KPI "Saúde do modelo")
+
+Score composto = soma de 3 sinais binários:
+
+| # | Sinal | Threshold | Razão |
+|---|-------|-----------|-------|
+| 1 | Drift na taxa de churn predita | \|Δ\| > 15pp (1h vs 24h) | Output drift — captura mudança de classe agnóstica de feature |
+| 2 | Excesso de inputs `unknown` | (gender + plan) > 10% | Input drift — novas categorias ou missing massivo |
+| 3 | Concentração em risco `alto` | > 60% das predições | Decision skew — calibração degradou ou inputs adversariais |
+
+Mapeamento: **0=OK** (verde) · **1=Atenção** (amarelo) · **2=Alerta** (laranja) · **3=Retreino recomendado** (vermelho).
+
+### 14.5 Como gerar tráfego para validar
+
+```bash
+# Carga randomizada com drift artificial (idade +10, charges +30%, etc)
+poetry run python scripts/simulate_drift.py --url http://localhost:8000 --n-requests 300
+
+# Carga determinística — perfil de churn alto (ver seção 13.3 de exemplos)
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"age": 22, "gender": "male", "plan_type": "pre", "nps_score": 0,
+       "support_calls_30d": 9, "tenure_months": 2, "default_flag": 1,
+       "competitor_offer_contact_flag": 1}'
+```
+
+Após ~30s de tráfego, o Grafana já mostra dados nos dois dashboards (refresh automático
+de 10s no operacional, 30s no de saúde).
+
+### 14.6 Queries PromQL úteis
 
 ```promql
-# Throughput (req/s)
-rate(churn_api_http_requests_total[1m])
+# Throughput (req/s, janela 5min)
+sum(rate(churn_api_http_requests_total[5m]))
 
-# Latência P95
-histogram_quantile(0.95, rate(churn_api_http_request_duration_seconds_bucket[5m]))
+# Latência p95 do /predict
+histogram_quantile(0.95, sum by (le) (rate(churn_api_http_request_duration_seconds_bucket{endpoint="/predict"}[5m])))
+
+# Taxa de churn predita (1h móvel)
+sum(increase(churn_api_predictions_total{churn_prediction="1"}[1h]))
+  / clamp_min(sum(increase(churn_api_predictions_total[1h])), 1)
+
+# Quantil da probabilidade predita
+histogram_quantile(0.5, sum by (le) (rate(churn_api_prediction_probability_bucket[1h])))
 ```
 
-Guia completo: [docs/PROMETHEUS_SETUP.md](docs/PROMETHEUS_SETUP.md) | Exemplo de config: [examples/prometheus.yml](examples/prometheus.yml)
+### 14.7 Persistência e troubleshooting
+
+- **Volumes nomeados**: `prometheus-data` (TSDB 15d) e `grafana-data` (config + sessões).
+  `docker compose down -v` apaga ambos.
+- **Counter zerado após rebuild**: ao mudar labelnames de um Counter, séries antigas viram
+  stale e novas só aparecem após o primeiro `inc()`. Gere tráfego (seção 14.5) — em ~15s
+  os painéis voltam.
+- **Painéis vazios após mudar código de métrica**: requer `docker compose up -d --build
+  churn-api`. Hot-reload do uvicorn não recarrega o Prometheus client registry.
+- **Empty vector em PromQL**: queries com filtro `{label="x"}` retornam vetor vazio se
+  nenhuma série casar — `vazio + escalar = vazio`. Use `or vector(0)` para defaultar
+  para zero em queries de KPI/alerta.
+
+### 14.8 Referências adicionais
+
+- [docs/PROMETHEUS_SETUP.md](docs/PROMETHEUS_SETUP.md) — guia conceitual de instrumentação Prometheus
+- [examples/prometheus.yml](examples/prometheus.yml) — exemplo de config standalone
+- [grafana-prometheus/grafana/dashboards/](grafana-prometheus/grafana/dashboards/) — JSON dos dashboards (versionados em git)
 
 ## 15. Monitoramento de drift
 
