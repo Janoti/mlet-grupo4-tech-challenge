@@ -17,13 +17,11 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response as StarletteResponse
 
-from churn_prediction.api.middleware import prometheus_middleware
+from churn_prediction.api.middleware import observability_middleware
 from churn_prediction.api.prometheus_metrics import (
     model_info,
     model_loaded,
@@ -96,28 +94,6 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
-# Middleware de latência (header X-Process-Time-Ms + log estruturado)
-# ---------------------------------------------------------------------------
-
-class LatencyMiddleware(BaseHTTPMiddleware):
-    """Mede latência total e injeta header X-Process-Time-Ms."""
-
-    async def dispatch(self, request: Request, call_next) -> StarletteResponse:
-        start = time.perf_counter()
-        response = await call_next(request)
-        latency_ms = (time.perf_counter() - start) * 1000
-        response.headers["X-Process-Time-Ms"] = f"{latency_ms:.2f}"
-        logger.info(
-            '{"event":"http_request","method":"%s","path":"%s","status":%d,"latency_ms":%.2f}',
-            request.method,
-            request.url.path,
-            response.status_code,
-            latency_ms,
-        )
-        return response
-
-
-# ---------------------------------------------------------------------------
 # Instância FastAPI
 # ---------------------------------------------------------------------------
 app = FastAPI(
@@ -131,12 +107,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Middlewares: o decorador @app.middleware roda PRIMEIRO no request,
-# então prometheus_middleware fica mais externo (mede inclusive overhead
-# de outros middlewares); LatencyMiddleware fica mais interno e cuida do
-# header HTTP exposto ao cliente.
-app.add_middleware(LatencyMiddleware)
-app.middleware("http")(prometheus_middleware)
+# Único middleware: mede latência uma vez e propaga para header HTTP,
+# log estruturado e métricas Prometheus.
+app.middleware("http")(observability_middleware)
 
 
 # ---------------------------------------------------------------------------
