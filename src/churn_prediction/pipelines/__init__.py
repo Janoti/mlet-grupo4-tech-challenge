@@ -53,10 +53,6 @@ def prepare_data(
     y = df[target_col].astype(int)
     X = df.drop(columns=[target_col])
 
-    # Remove age_group do X (usado apenas como sensível)
-    if "age_group" in X.columns:
-        X = X.drop(columns=["age_group"])
-
     split_arrays = [X, y] + [sensitive[f] for f in SENSITIVE_FEATURES if f in sensitive]
 
     results = train_test_split(

@@ -36,7 +36,7 @@ from churn_prediction.api.schemas import (
     PredictionResponse,
 )
 from churn_prediction.config import LEAKAGE_COLS
-from churn_prediction.data_cleaning import clip_numeric_features, standardize_categoricals
+from churn_prediction.data_cleaning import clip_numeric_features, create_age_group, standardize_categoricals
 
 logger = logging.getLogger("churn_api")
 logging.basicConfig(
@@ -149,6 +149,7 @@ async def predict(customer: CustomerFeatures):
     # Aplica mesmas limpezas do pipeline de treino
     df = standardize_categoricals(df)
     df = clip_numeric_features(df)
+    df = create_age_group(df)
 
     # Remove colunas de leakage caso presentes
     cols_to_drop = [c for c in LEAKAGE_COLS if c in df.columns]
