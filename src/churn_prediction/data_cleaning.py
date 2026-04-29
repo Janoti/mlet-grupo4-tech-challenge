@@ -108,6 +108,6 @@ def clean_dataset(path: str) -> pd.DataFrame:
     df = load_raw_data(path)
     df = remove_duplicates(df)
     df = standardize_categoricals(df)
-    df = clip_numeric_features(df)
     df = create_age_group(df)
+    df = clip_numeric_features(df)
     return df
