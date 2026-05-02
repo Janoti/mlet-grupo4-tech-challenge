@@ -191,3 +191,28 @@ class RetargetRecommendation(BaseModel):
     )
     last_retrain_days_ago: int | None = None
     estimated_retrain_cost: str | None = Field(None, description="Ex: 'low', 'medium', 'high'")
+
+
+class FeedbackRequest(BaseModel):
+    """Feedback do usuário sobre uma predição."""
+
+    prediction_id: str = Field(..., description="ID ou hash da predição realizada")
+    actual_churn: int | None = Field(
+        None,
+        description="Resultado real (0=não churned, 1=churned)"
+    )
+    feedback_type: str = Field(
+        ...,
+        description="Tipo de feedback: 'correct', 'incorrect', 'uncertain'"
+    )
+    comment: str | None = Field(None, description="Comentário adicional do usuário")
+    rating: int | None = Field(None, ge=1, le=5, description="Avaliação da predição (1-5)")
+
+
+class FeedbackResponse(BaseModel):
+    """Confirmação de recebimento de feedback."""
+
+    feedback_id: str
+    timestamp: str
+    status: str = Field(..., description="'received' ou 'error'")
+    message: str = ""
