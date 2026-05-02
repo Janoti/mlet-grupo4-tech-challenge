@@ -49,7 +49,7 @@ def main():
     parser = argparse.ArgumentParser(description="Simula drift enviando dados para a API")
     parser.add_argument("--url", default="http://localhost:8000", help="URL base da API")
     parser.add_argument("--n-requests", type=int, default=100, help="Número de requisições")
-    parser.add_argument("--output", default="logs/drift_simulation.jsonl", help="Arquivo de saída")
+    parser.add_argument("--output", default="/tmp/drift_simulation.jsonl", help="Arquivo de saída")
     args = parser.parse_args()
 
     logger.info("Enviando %d requisições com drift para %s", args.n_requests, args.url)

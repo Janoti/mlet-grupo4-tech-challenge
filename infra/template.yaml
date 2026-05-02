@@ -1,0 +1,648 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack completa para Churn Prediction API + Prometheus + Grafana.
+  Provisiona VPC, EC2 (docker-compose), ECR, CloudWatch Logs e Security Groups.
+  Adequada às políticas de governança hubfintech (tags, KMS, IMDSv2, VPC Flow Logs).
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.micro, t3.small, t3.medium, t3.large]
+    Description: Tipo da instancia EC2
+
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: Nome do Key Pair para SSH (deixe vazio para desabilitar SSH)
+
+  AllowedCidr:
+    Type: String
+    Default: "0.0.0.0/0"
+    Description: CIDR permitido para acesso (API, Grafana, Prometheus)
+
+  SshCidr:
+    Type: String
+    Default: "10.0.0.0/8"
+    Description: CIDR restrito para SSH (default rede interna)
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Tag da imagem Docker no ECR
+
+  GrafanaPassword:
+    Type: String
+    Default: mletg4
+    NoEcho: true
+    Description: Senha do admin do Grafana
+
+  GitHubRepo:
+    Type: String
+    Default: https://github.com/Janoti/mlet-grupo4-tech-challenge.git
+    Description: URL do repositorio GitHub (para clonar dashboards e configs)
+
+  GitBranch:
+    Type: String
+    Default: main
+    Description: Branch do repositorio para clone
+
+  # Tags de governança obrigatórias
+  SeOrg:
+    Type: String
+    Default: fintech
+    Description: "Tag se_org (governança)"
+
+  SeEnvironment:
+    Type: String
+    Default: sso-hml
+    Description: "Tag se_environment (governança)"
+
+  SePciMachine:
+    Type: String
+    Default: "no"
+    Description: "Tag se_pci_machine (governança)"
+
+  SeContaPci:
+    Type: String
+    Default: "no"
+    Description: "Tag se_conta_pci (governança)"
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # ========= REDE =========
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: vpc
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-subnet"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: subnet
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: igw
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-rt"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: route-table
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # ========= VPC FLOW LOGS (governança: vpc-flow-logs-enabled) =========
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FlowLogCloudWatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Tags:
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: iam-role
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/vpc-flow-logs/${AWS::StackName}"
+      RetentionInDays: 14
+      Tags:
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: log-group
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  VPCFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref FlowLogGroup
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-flow-log"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: flow-log
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  # ========= SECURITY GROUP =========
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Churn Prediction Stack - API, Grafana, Prometheus, SSH
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # SSH restrito à rede interna (governança: vpc-sg-port-restriction-check)
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshCidr
+          Description: SSH (rede interna)
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: !Ref AllowedCidr
+          Description: Churn API
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: !Ref AllowedCidr
+          Description: Grafana
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          CidrIp: !Ref AllowedCidr
+          Description: Prometheus
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-sg"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: security-group
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  # ========= IAM =========
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+        - PolicyName: KMSDecrypt
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+      Tags:
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: iam-role
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # ========= ECR (gerenciado pelo deploy.sh, não pelo CFN) =========
+  # O repositório ECR é criado pelo deploy.sh antes do CFN para permitir
+  # push da imagem antes da stack existir. Veja build_and_push() no deploy.sh.
+
+  # ========= CLOUDWATCH =========
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/churn-prediction/${AWS::StackName}"
+      RetentionInDays: 14
+      Tags:
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: log-group
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  # ========= ELASTIC IP =========
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-eip"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: eip
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref EC2Instance
+      AllocationId: !GetAtt ElasticIP.AllocationId
+
+  # ========= EC2 INSTANCE =========
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: IGWAttachment
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          full_install:
+            - install_docker
+            - setup_app
+            - start_services
+
+        install_docker:
+          commands:
+            01_update:
+              command: dnf update -y
+            02_install_docker:
+              command: dnf install -y docker git
+            03_start_docker:
+              command: systemctl enable docker && systemctl start docker
+            04_usermod:
+              command: usermod -aG docker ec2-user
+            05_install_compose:
+              command: |
+                COMPOSE_VERSION=v2.29.2
+                curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+                  -o /usr/local/bin/docker-compose
+                chmod +x /usr/local/bin/docker-compose
+                ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+        setup_app:
+          commands:
+            01_clone_repo:
+              command: !Sub |
+                rm -rf /opt/churn-app/.git
+                git clone --depth 1 --branch ${GitBranch} ${GitHubRepo} /tmp/churn-repo
+                cp -rn /tmp/churn-repo/* /opt/churn-app/ 2>/dev/null || true
+                cp -rn /tmp/churn-repo/.* /opt/churn-app/ 2>/dev/null || true
+                rm -rf /tmp/churn-repo
+            02_ecr_login:
+              command: !Sub |
+                aws ecr get-login-password --region ${AWS::Region} \
+                  | docker login --username AWS --password-stdin \
+                    ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+            03_pull_image:
+              command: !Sub |
+                docker pull ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWS::StackName}/churn-api:${ImageTag} || true
+          files:
+            /opt/churn-app/docker-compose.prod.yml:
+              content: !Sub |
+                services:
+                  churn-api:
+                    image: ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWS::StackName}/churn-api:${ImageTag}
+                    container_name: churn-api
+                    ports:
+                      - "8000:8000"
+                    environment:
+                      - CHURN_MODEL_PATH=/app/models/churn_pipeline.joblib
+                      - LOG_LEVEL=INFO
+                    healthcheck:
+                      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/health'); assert r.status_code==200"]
+                      interval: 30s
+                      timeout: 5s
+                      retries: 3
+                      start_period: 15s
+                    networks:
+                      - churn-net
+                    restart: unless-stopped
+                    logging:
+                      driver: json-file
+                      options:
+                        max-size: "10m"
+                        max-file: "3"
+
+                  prometheus:
+                    image: prom/prometheus:v3.11.2
+                    container_name: prometheus
+                    ports:
+                      - "9090:9090"
+                    command:
+                      - --config.file=/etc/prometheus/prometheus.yml
+                      - --storage.tsdb.path=/prometheus
+                      - --storage.tsdb.retention.time=15d
+                      - --web.enable-lifecycle
+                    volumes:
+                      - /opt/churn-app/grafana-prometheus/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+                      - prometheus-data:/prometheus
+                    depends_on:
+                      - churn-api
+                    networks:
+                      - churn-net
+                    restart: unless-stopped
+                    logging:
+                      driver: json-file
+                      options:
+                        max-size: "10m"
+                        max-file: "3"
+
+                  grafana:
+                    image: grafana/grafana:11.3.0
+                    container_name: grafana
+                    ports:
+                      - "3000:3000"
+                    environment:
+                      - GF_SECURITY_ADMIN_USER=mletg4
+                      - GF_SECURITY_ADMIN_PASSWORD=${GrafanaPassword}
+                      - GF_USERS_ALLOW_SIGN_UP=false
+                      - GF_AUTH_ANONYMOUS_ENABLED=false
+                      - GF_SERVER_ROOT_URL=http://localhost:3000
+                      - GF_LOG_LEVEL=info
+                    volumes:
+                      - /opt/churn-app/grafana-prometheus/grafana/provisioning:/etc/grafana/provisioning:ro
+                      - /opt/churn-app/grafana-prometheus/grafana/dashboards:/var/lib/grafana/dashboards:ro
+                      - grafana-data:/var/lib/grafana
+                    depends_on:
+                      - prometheus
+                    networks:
+                      - churn-net
+                    restart: unless-stopped
+                    logging:
+                      driver: json-file
+                      options:
+                        max-size: "10m"
+                        max-file: "3"
+
+                networks:
+                  churn-net:
+                    driver: bridge
+
+                volumes:
+                  prometheus-data:
+                  grafana-data:
+              mode: "000644"
+              owner: root
+              group: root
+
+        start_services:
+          commands:
+            01_pull_and_up:
+              command: |
+                cd /opt/churn-app
+                docker-compose -f docker-compose.prod.yml up -d
+              cwd: /opt/churn-app
+
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      # IMDSv2 obrigatório (governança: ec2-imdsv2-check)
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 2
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ec2"
+        - Key: se_org
+          Value: !Ref SeOrg
+        - Key: se_environment
+          Value: !Ref SeEnvironment
+        - Key: se_resource
+          Value: ec2
+        - Key: se_pci_machine
+          Value: !Ref SePciMachine
+        - Key: se_conta_pci
+          Value: !Ref SeContaPci
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # AL2023: cfn-bootstrap ja vem pre-instalado via dnf
+          dnf install -y aws-cfn-bootstrap
+
+          # Executa cfn-init (install docker, setup app, start services)
+          /opt/aws/bin/cfn-init -v \
+            --stack ${AWS::StackName} \
+            --resource EC2Instance \
+            --configsets full_install \
+            --region ${AWS::Region}
+
+          # Sinaliza sucesso/falha para o CloudFormation
+          /opt/aws/bin/cfn-signal -e $? \
+            --stack ${AWS::StackName} \
+            --resource EC2Instance \
+            --region ${AWS::Region}
+
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+  ApiUrl:
+    Description: URL da Churn Prediction API
+    Value: !Sub "http://${ElasticIP}:8000"
+
+  ApiHealthCheck:
+    Description: Health check da API
+    Value: !Sub "http://${ElasticIP}:8000/health"
+
+  ApiPredictExample:
+    Description: Exemplo de curl para predição
+    Value: !Sub >
+      curl -X POST http://${ElasticIP}:8000/predict
+      -H "Content-Type: application/json"
+      -d '{"age":45,"gender":"female","plan_type":"pos","monthly_charges":120,"nps_score":3}'
+
+  GrafanaUrl:
+    Description: URL do Grafana (user mletg4)
+    Value: !Sub "http://${ElasticIP}:3000"
+
+  PrometheusUrl:
+    Description: URL do Prometheus
+    Value: !Sub "http://${ElasticIP}:9090"
+
+  ECRRepositoryUri:
+    Description: URI do repositorio ECR para push de imagens
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWS::StackName}/churn-api"
+
+  SSHCommand:
+    Condition: HasKeyPair
+    Description: Comando SSH para acessar a instancia
+    Value: !Sub "ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}"
+
+  InstanceId:
+    Description: ID da instancia EC2
+    Value: !Ref EC2Instance

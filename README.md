@@ -79,6 +79,7 @@ sequenceDiagram
 - **Testes automatizados** (36 testes: smoke, schema, API, registry)
 - **CI/CD** com GitHub Actions (lint, testes, treinamento, build Docker)
 - **Monitoramento de drift** (KS test, Chi², PSI) com simulação
+- **Deploy na AWS** com CloudFormation (VPC, EC2, ECR, Elastic IP, Prometheus, Grafana)
 - Documentação técnica e de negócio atualizada
 
 ## 1. Objetivo
@@ -157,6 +158,10 @@ mlet-grupo4-tech-challenge/
 │   └── grafana/
 │       ├── provisioning/        # Datasources e providers de dashboards
 │       └── dashboards/          # JSON dos dashboards (auto-loaded)
+├── infra/
+│   ├── deploy.sh                # Deploy automatizado (build + ECR + CloudFormation)
+│   ├── template.yaml            # CloudFormation: VPC, EC2, SG, cfn-init
+│   └── Dockerfile.prod          # Imagem otimizada para produção
 ├── Dockerfile
 ├── docker-compose.yml           # API + MLflow + Prometheus + Grafana
 ├── pyproject.toml
@@ -740,18 +745,180 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 2. **Train**: gera dados → seleciona champion → exporta modelo (apenas main)
 3. **Docker**: valida build da imagem (apenas main)
 
-## 17. Proximos passos
+## 17. Deploy na AWS (EC2 + CloudFormation)
+
+O projeto inclui infraestrutura como código para deploy automatizado na AWS, com stack completa (API + Prometheus + Grafana) rodando em uma instância EC2 via docker-compose.
+
+### 17.1 Arquitetura na AWS
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     VPC (10.0.0.0/16)                   │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │              Public Subnet (10.0.1.0/24)          │  │
+│  │  ┌─────────────────────────────────────────────┐  │  │
+│  │  │           EC2 (t3.medium)                   │  │  │
+│  │  │                                             │  │  │
+│  │  │  ┌──────────┐ ┌────────────┐ ┌───────────┐ │  │  │
+│  │  │  │churn-api │ │ Prometheus │ │  Grafana  │ │  │  │
+│  │  │  │  :8000   │ │   :9090    │ │   :3000   │ │  │  │
+│  │  │  └──────────┘ └────────────┘ └───────────┘ │  │  │
+│  │  │         docker-compose.prod.yml             │  │  │
+│  │  └─────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────┘  │
+│                                                         │
+│  ┌──────────┐  ┌──────────────┐  ┌───────────────────┐  │
+│  │ Elastic  │  │  Security    │  │  VPC Flow Logs    │  │
+│  │   IP     │  │  Groups      │  │  → CloudWatch     │  │
+│  └──────────┘  └──────────────┘  └───────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+         │
+    ┌────┴─────┐
+    │   ECR    │  (imagem Docker da API)
+    └──────────┘
+```
+
+### 17.2 Pré-requisitos
+
+- AWS CLI v2 configurado (`aws sts get-caller-identity`)
+- Docker rodando localmente
+- Modelo exportado em `models/churn_pipeline.joblib`
+
+### 17.3 Deploy automatizado (recomendado)
+
+O script `deploy.sh` executa o fluxo completo: build da imagem → push para ECR → deploy CloudFormation.
+
+```bash
+# Deploy completo (build + push + stack)
+./infra/deploy.sh
+
+# Apenas atualizar a stack (sem rebuild da imagem)
+./infra/deploy.sh --stack-only
+
+# Apenas build + push (sem deploy CloudFormation)
+./infra/deploy.sh --build-only
+
+# Destruir toda a stack
+./infra/deploy.sh --destroy
+```
+
+Variáveis de ambiente configuráveis:
+
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `STACK_NAME` | `churn-prediction-stack` | Nome da stack CloudFormation |
+| `AWS_REGION` | `sa-east-1` | Região AWS |
+| `INSTANCE_TYPE` | `t3.medium` | Tipo da instância EC2 |
+| `IMAGE_TAG` | `latest` | Tag da imagem Docker no ECR |
+| `GRAFANA_PASSWORD` | `mletg4` | Senha do admin do Grafana |
+
+### 17.4 Deploy manual (passo a passo)
+
+```bash
+# 1. Exportar o modelo treinado
+PYTHONPATH=src poetry run python scripts/export_model.py
+
+# 2. Build da imagem otimizada para produção
+docker build -f infra/Dockerfile.prod -t churn-prediction-stack/churn-api:latest .
+
+# 3. Criar repositório ECR e fazer push
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.sa-east-1.amazonaws.com/churn-prediction-stack/churn-api"
+
+aws ecr create-repository --repository-name churn-prediction-stack/churn-api --region sa-east-1 2>/dev/null || true
+aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.sa-east-1.amazonaws.com"
+docker tag churn-prediction-stack/churn-api:latest "$ECR_URI:latest"
+docker push "$ECR_URI:latest"
+
+# 4. Criar a stack CloudFormation
+aws cloudformation deploy \
+  --template-file infra/template.yaml \
+  --stack-name churn-prediction-stack \
+  --region sa-east-1 \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    InstanceType=t3.medium \
+    ImageTag=latest \
+    GrafanaPassword=mletg4
+
+# 5. Verificar outputs (URLs dos serviços)
+aws cloudformation describe-stacks \
+  --stack-name churn-prediction-stack \
+  --region sa-east-1 \
+  --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+  --output table
+```
+
+### 17.5 O que o CloudFormation provisiona
+
+| Recurso | Descrição |
+|---------|-----------|
+| **VPC** | Rede isolada (10.0.0.0/16) com subnet pública |
+| **EC2** | Instância com Docker, docker-compose e cfn-init |
+| **Elastic IP** | IP fixo para a API |
+| **Security Groups** | Portas 8000 (API), 3000 (Grafana), 9090 (Prometheus) |
+| **ECR** | Repositório de imagens Docker (gerenciado pelo `deploy.sh`) |
+| **IAM Role** | Permissões para ECR pull, CloudWatch Logs, SSM |
+| **VPC Flow Logs** | Logs de rede → CloudWatch (retenção 14 dias) |
+
+Conformidade com governança:
+- Tags obrigatórias (`se_org`, `se_environment`, `se_resource`, `se_pci_machine`, `se_conta_pci`)
+- KMS encryption (EBS, ECR, CloudWatch Logs)
+- IMDSv2 obrigatório
+- VPC Flow Logs habilitados
+- SSH restrito a CIDR interno (`10.0.0.0/8`)
+
+### 17.6 Validação pós-deploy
+
+Aguarde ~3-5 minutos após o `CREATE_COMPLETE` para os containers inicializarem.
+
+```bash
+# Health check
+curl http://<ELASTIC_IP>:8000/health
+
+# Predição de teste
+curl -X POST http://<ELASTIC_IP>:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"age": 45, "gender": "female", "plan_type": "pos", "monthly_charges": 120, "nps_score": 3}'
+
+# Simular drift para testar observabilidade
+poetry run python scripts/simulate_drift.py --url http://<ELASTIC_IP>:8000 --n-requests 300
+
+# Analisar drift (compara treino vs produção)
+PYTHONPATH=src poetry run python scripts/check_drift.py \
+  --reference data/raw/telecom_churn_base_extended.csv \
+  --production /tmp/drift_simulation.jsonl
+```
+
+| Serviço | URL | Credencial |
+|---------|-----|------------|
+| API (Swagger) | `http://<ELASTIC_IP>:8000/docs` | — |
+| Prometheus | `http://<ELASTIC_IP>:9090` | — |
+| Grafana | `http://<ELASTIC_IP>:3000` | `mletg4` / `<GrafanaPassword>` |
+
+### 17.7 Destruição da stack
+
+```bash
+# Via script (limpa ECR + VPC Endpoints do GuardDuty + deleta stack)
+./infra/deploy.sh --destroy
+
+# Ou manualmente
+aws cloudformation delete-stack --stack-name churn-prediction-stack --region sa-east-1
+aws cloudformation wait stack-delete-complete --stack-name churn-prediction-stack --region sa-east-1
+```
+
+## 18. Proximos passos
 
 1. Calibrar os parametros de negocio (`V_RETIDO`, `C_ACAO`) com time de CRM/financas.
 2. Definir corte operacional por top-K para retencao.
 3. Implementar retreinamento automático via trigger de drift (CT).
 4. Adicionar autenticação JWT à API (conforme Cap. 5 do material).
-5. Deploy em cloud (Render, AWS, Azure) com autoscaling.
+5. ~~Deploy em cloud (Render, AWS, Azure) com autoscaling.~~ ✅ Implementado (seção 17).
 6. Integrar SHAP/LIME para explainability do modelo.
 
-## 18. Resultados dos Baselines e Interpretação
+## 19. Resultados dos Baselines e Interpretação
 
-### 18.1 Desempenho dos modelos
+### 19.1 Desempenho dos modelos
 
 | Modelo                        | Accuracy | F1    | ROC-AUC | PR-AUC | Valor Líquido    |
 |-------------------------------|----------|-------|---------|--------|------------------|
@@ -766,7 +933,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - O valor líquido representa o ganho operacional ao aplicar a política de retencao baseada no modelo.
 - O modelo mitigado por fairness mantém performance próxima, com pequena perda de F1 e valor líquido, o que é esperado.
 
-### 18.2 Diagnóstico de Overfitting
+### 19.2 Diagnóstico de Overfitting
 
 | Modelo         | delta_roc_auc (treino - teste) | Diagnóstico                        |
 |---------------|-------------------------------|------------------------------------|
@@ -776,7 +943,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 **Interpretação:**
 - O delta_roc_auc próximo de zero mostra que o modelo não está memorizando o treino e generaliza bem para novos dados.
 
-### 18.3 Comparação de Penalizações (L1, L2, ElasticNet)
+### 19.3 Comparação de Penalizações (L1, L2, ElasticNet)
 
 | Penalização | Melhor C | ROC-AUC CV | ROC-AUC Teste |
 |-------------|----------|------------|---------------|
@@ -789,7 +956,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - Isso indica que o dataset está bem condicionado e não há ganho relevante em usar penalizações mais complexas.
 - Mantém-se L2 como referência pela simplicidade.
 
-### 18.4 Fairness por Grupo Sensível
+### 19.4 Fairness por Grupo Sensível
 
 #### `log_reg` (sem mitigação)
 
@@ -814,7 +981,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 - A mitigacao reduz o gap de fairness para gênero, com custo operacional pequeno.
 - Os gaps de outros atributos permanecem sem tratamento.
 
-### 18.5 Métrica de Negócio
+### 19.5 Métrica de Negócio
 
 ```
 valor_liquido = TP x R$500 - (TP + FP) x R$50
@@ -827,9 +994,9 @@ valor_liquido = TP x R$500 - (TP + FP) x R$50
 **Resumo:**
 O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já considera fairness. Os resultados são realistas e prontos para apresentação ou evolução para modelos mais complexos.
 
-## 19. Resultados do MLP e Comparação Completa
+## 20. Resultados do MLP e Comparação Completa
 
-### 19.1 Desempenho comparativo (todos os modelos)
+### 20.1 Desempenho comparativo (todos os modelos)
 
 | Modelo               | Accuracy | F1     | ROC-AUC | PR-AUC | Valor Líquido    |
 |----------------------|----------|--------|---------|--------|------------------|
@@ -844,7 +1011,7 @@ O pipeline baseline entrega valor de negócio robusto, generaliza bem, e já con
 - ROC-AUC e F1 do MLP ficam apenas 0.004 abaixo do GradientBoosting — diferença não significativa considerando o ganho operacional.
 - O MLP confirma a robustez do pipeline: mesmo sem tuning extenso, atinge resultado competitivo.
 
-### 19.2 Feature Importance (RF e Gradient Boosting)
+### 20.2 Feature Importance (RF e Gradient Boosting)
 
 Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
 
@@ -863,6 +1030,6 @@ Top features presentes no Top-10 de **ambos** os modelos (7 features consenso):
 - Choques financeiros (`invoice_shock_flag`, `price_increase_last_3m`) e preço do plano também influenciam significativamente.
 - Essas features devem ser priorizadas em regras de negócio e campanhas de retenção.
 
-## 20. Contato
+## 21. Contato
 
 Grupo 4 - Tech Challenge FIAP
