@@ -117,12 +117,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Churn Prediction API",
     description=(
-        "API para predição de churn em telecom. "
-        "Recebe dados de um cliente e retorna probabilidade de churn, "
-        "predição binária e faixa de risco."
+        "**API de Predição de Churn em Telecom**\n\n"
+        "Endpoints para:\n"
+        "- **Inferência**: Predições de churn com probabilidade e nível de risco\n"
+        "- **Drift Monitoring**: Detecção de data drift vs. distribuição de treino\n"
+        "- **Model Management**: Histórico de versões e recomendações de retreinamento\n"
+        "- **Feedback**: Coleta de feedback para análise de performance\n\n"
+        "**Documentação**: Veja [API.md](../docs/API.md) para guias de integração.\n"
+        "**Exemplos**: Consulte `/docs` para endpoint interativo.\n"
+        "**MLflow**: Ver histórico de treinamentos em `http://localhost:5000`."
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # CORS Middleware
@@ -377,8 +386,23 @@ async def root():
     return {
         "name": "Churn Prediction API",
         "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health",
-        "predict": "/predict (POST)",
-        "metrics": "/metrics",
+        "description": "Predição de churn em telecom com monitoramento de drift e feedback",
+        "docs": "/docs (Swagger interactive)",
+        "redoc": "/redoc (ReDoc documentation)",
+        "endpoints": {
+            "health": "GET /health",
+            "predict": "POST /predict",
+            "drift_check": "POST /drift/check",
+            "drift_report": "GET /drift/report",
+            "model_versions": "GET /model/versions",
+            "retrain_recommendation": "POST /model/retrain-recommendation",
+            "feedback": "POST /feedback",
+            "feedback_summary": "GET /feedback/summary",
+            "metrics": "GET /metrics (Prometheus)",
+        },
+        "links": {
+            "documentation": "/docs",
+            "api_markdown": "../docs/API.md",
+            "mlflow_ui": "http://localhost:5000",
+        },
     }
