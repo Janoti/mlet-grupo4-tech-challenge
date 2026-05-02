@@ -76,10 +76,11 @@ sequenceDiagram
 - **API FastAPI** com endpoints `/predict` e `/health` (Pydantic schemas)
 - **Dockerfile + docker-compose** para deploy containerizado
 - **Model Registry** com seleção automática do champion por métrica de negócio (`valor_liquido`)
-- **Testes automatizados** (36 testes: smoke, schema, API, registry)
+- **Testes automatizados** (40+ testes: smoke, schema, API, integration, registry)
 - **CI/CD** com GitHub Actions (lint, testes, treinamento, build Docker)
 - **Monitoramento de drift** (KS test, Chi², PSI) com simulação
 - **Deploy na AWS** com CloudFormation (VPC, EC2, ECR, Elastic IP, Prometheus, Grafana)
+- **Teste end-to-end** (workflow completo: predict → drift → feedback → retrain recommendation)
 - Documentação técnica e de negócio atualizada
 
 ## 1. Objetivo
@@ -227,6 +228,147 @@ Quando o MLP é o champion, o registry empacota o modelo PyTorch + preprocessor 
 
 - **Makefile**: targets para rodar EDA, baselines, MLP, análise e MLflow
 - **MLflow**: rastreia experimentos, parâmetros, métricas técnicas e de negócio
+
+## 6.1. API FastAPI para Predição e Monitoramento
+
+O projeto inclui uma **API FastAPI em produção** para inferência, monitoramento de drift e feedback de modelo.
+
+### Quick Start
+
+#### Desenvolvimento Local
+
+```bash
+# Inicia a API localmente (porta 8000)
+PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload
+```
+
+#### Com Docker
+
+```bash
+# Inicia API containerizada + MLflow + Prometheus + Grafana
+docker compose up --build
+
+# Ou apenas a API
+docker compose up churn-api
+```
+
+### Endpoints Principais
+
+| Endpoint | Método | Propósito |
+|----------|--------|-----------|
+| `/health` | GET | Health check e status do modelo |
+| `/predict` | POST | Predição de churn para um cliente |
+| `/drift/check` | POST | Detecta data drift em batch de dados |
+| `/drift/report` | GET | Relatório detalhado de drift por feature |
+| `/model/versions` | GET | Lista histórico de versões treinadas |
+| `/model/retrain-recommendation` | POST | Recomenda se deve retreinar |
+| `/feedback` | POST | Registra feedback sobre uma predição |
+| `/feedback/summary` | GET | Sumário de feedback coletado |
+| `/metrics` | GET | Métricas Prometheus para observabilidade |
+| `/docs` | GET | Documentação interativa (Swagger UI) |
+
+### Exemplo de Uso
+
+#### 1. Predição
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "gender": "male",
+    "region": "Sudeste",
+    "plan_type": "pos",
+    "tenure_months": 24,
+    "nps_score": 7
+  }'
+```
+
+Resposta:
+```json
+{
+  "churn_probability": 0.6512,
+  "churn_prediction": 1,
+  "risk_level": "alto",
+  "model_version": "mlp_pytorch_v1"
+}
+```
+
+#### 2. Detecção de Drift
+
+```bash
+curl -X POST http://localhost:8000/drift/check \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"age": 35, "gender": "male", "tenure_months": 24, "nps_score": 7},
+    {"age": 42, "gender": "female", "tenure_months": 36, "nps_score": 8},
+    {"age": 28, "gender": "male", "tenure_months": 12, "nps_score": 5}
+  ]'
+```
+
+Resposta:
+```json
+{
+  "drift_detected": false,
+  "drift_ratio": 0.15,
+  "recommendation": "Monitor: drift ratio below threshold"
+}
+```
+
+#### 3. Recomendação de Retreinamento
+
+```bash
+curl -X POST "http://localhost:8000/model/retrain-recommendation?drift_ratio=0.3" \
+  -H "Content-Type: application/json"
+```
+
+Resposta:
+```json
+{
+  "should_retrain": false,
+  "reason": "Drift ratio (0.3) below critical threshold (0.5)"
+}
+```
+
+#### 4. Submissão de Feedback
+
+```bash
+curl -X POST http://localhost:8000/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prediction_id": "pred_12345",
+    "actual_churn": 1,
+    "feedback_type": "correct",
+    "comment": "Cliente churned, previsão acertou",
+    "rating": 5
+  }'
+```
+
+Resposta:
+```json
+{
+  "feedback_id": "fb_abc123",
+  "timestamp": "2026-05-02T10:30:45.123Z",
+  "status": "received",
+  "message": "Feedback registrado com sucesso"
+}
+```
+
+### Teste Integrado (End-to-End)
+
+Executar workflow completo: predict → drift → feedback → retrain recommendation
+
+```bash
+# Com modelo carregado
+PYTHONPATH=src poetry run pytest tests/api/test_integration.py -v
+```
+
+### Documentação Detalhada
+
+Para documentação completa sobre schemas, tratamento de erros e exemplos avançados, consulte:
+
+- **[docs/API.md](docs/API.md)** — Guia técnico completo com curl examples e swagger
+- **[/docs](http://localhost:8000/docs)** — Swagger UI interativo (rodando a API)
 
 ## 7. Ambiente e instalacao
 
