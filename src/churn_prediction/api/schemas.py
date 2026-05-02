@@ -117,3 +117,45 @@ class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     model_version: str | None = None
+
+
+class DriftFeatureResult(BaseModel):
+    """Resultado de detecção de drift para uma feature."""
+
+    feature_name: str
+    feature_type: str = Field(..., description="'numeric' ou 'categorical'")
+    test_name: str = Field(..., description="Tipo de teste estatístico aplicado")
+    statistic: float = Field(..., description="Valor da estatística do teste")
+    p_value: float = Field(..., description="P-value do teste (rejeita H0 se < alpha)")
+    drift_detected: bool = Field(..., description="True se drift foi detectado (p_value < alpha)")
+    psi: float | None = Field(None, description="Population Stability Index (para numéricas)")
+
+
+class DriftCheckResponse(BaseModel):
+    """Resposta de um check rápido de drift."""
+
+    timestamp: str
+    total_features_checked: int
+    drift_alerts: int
+    drift_ratio: float = Field(..., description="Proporção de features com drift (0-1)")
+    features_with_drift: list[str] = Field(
+        default_factory=list,
+        description="Nomes das features que apresentam drift"
+    )
+    recommendation: str = Field(
+        ...,
+        description="Recomendação de ação: 'monitor', 'investigate', ou 'retrain'"
+    )
+
+
+class DriftReportResponse(BaseModel):
+    """Relatório completo de drift com detalhes por feature."""
+
+    timestamp: str
+    total_features: int
+    drift_alerts: int
+    drift_ratio: float
+    features: dict[str, DriftFeatureResult] = Field(
+        ...,
+        description="Mapa de feature_name -> resultado do teste"
+    )
