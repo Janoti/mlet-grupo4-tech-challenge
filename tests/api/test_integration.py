@@ -130,9 +130,9 @@ class TestFullWorkflow:
         assert response.status_code == 200
 
         drift_result = response.json()
-        assert "drift_detected" in drift_result
         assert "drift_ratio" in drift_result
         assert "recommendation" in drift_result
+        assert "drift_alerts" in drift_result
 
         # drift_ratio deve estar entre 0 e 1
         assert 0 <= drift_result["drift_ratio"] <= 1
@@ -352,9 +352,9 @@ class TestWorkflowMetricsAndLogging:
 
         data = response.json()
         assert isinstance(data, dict)
-        assert "drift_detected" in data
         assert "drift_ratio" in data
         assert "recommendation" in data
+        assert "drift_alerts" in data
 
     def test_retrain_recommendation_response_structure(self, client):
         """Recomendação de retrain possui estrutura esperada."""
