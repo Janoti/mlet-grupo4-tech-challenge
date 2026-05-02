@@ -159,3 +159,35 @@ class DriftReportResponse(BaseModel):
         ...,
         description="Mapa de feature_name -> resultado do teste"
     )
+
+
+class ModelVersionInfo(BaseModel):
+    """Informações sobre uma versão de modelo registrada no MLflow."""
+
+    version_id: str = Field(..., description="Run ID ou versão do modelo")
+    model_name: str
+    metrics: dict = Field(default_factory=dict, description="Métricas do treinamento (ROC-AUC, F1, etc)")
+    params: dict = Field(default_factory=dict, description="Hiperparâmetros utilizados")
+    registered_at: str | None = None
+    is_champion: bool = Field(default=False, description="Se é o modelo em produção")
+
+
+class ModelVersionsResponse(BaseModel):
+    """Lista de versões de modelo disponíveis."""
+
+    total_versions: int
+    champion_version: str | None
+    versions: list[ModelVersionInfo]
+
+
+class RetargetRecommendation(BaseModel):
+    """Recomendação de retreinamento baseada em critérios de negócio."""
+
+    should_retrain: bool
+    reason: str = Field(..., description="Explicação da recomendação")
+    metrics_degradation: dict | None = Field(
+        None,
+        description="Métrica e degradação relativa (ex: {'auc': -0.05})"
+    )
+    last_retrain_days_ago: int | None = None
+    estimated_retrain_cost: str | None = Field(None, description="Ex: 'low', 'medium', 'high'")
