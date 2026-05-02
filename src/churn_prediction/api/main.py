@@ -13,11 +13,13 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -34,9 +36,20 @@ from churn_prediction.api.schemas import (
     CustomerFeatures,
     HealthResponse,
     PredictionResponse,
+    DriftCheckResponse,
+    DriftReportResponse,
+    ModelVersionsResponse,
+    RetargetRecommendation,
+    FeedbackRequest,
+    FeedbackResponse,
 )
+from churn_prediction.api.drift_service import DriftService
+from churn_prediction.api.model_service import ModelService
+from churn_prediction.api.feedback_service import FeedbackService
 from churn_prediction.config import LEAKAGE_COLS
 from churn_prediction.data_cleaning import clip_numeric_features, create_age_group, standardize_categoricals
+
+UTC = timezone.utc
 
 logger = logging.getLogger("churn_api")
 logging.basicConfig(
@@ -51,6 +64,11 @@ MODEL_STATE: dict = {
     "pipeline": None,
     "model_version": None,
 }
+
+# Serviços
+DRIFT_SERVICE = DriftService()
+MODEL_SERVICE = ModelService()
+FEEDBACK_SERVICE = FeedbackService()
 
 MODEL_PATH = os.getenv(
     "CHURN_MODEL_PATH",
@@ -107,7 +125,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Único middleware: mede latência uma vez e propaga para header HTTP,
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Observability middleware: mede latência uma vez e propaga para header HTTP,
 # log estruturado e métricas Prometheus.
 app.middleware("http")(observability_middleware)
 
@@ -201,6 +228,138 @@ async def predict(customer: CustomerFeatures):
         risk_level=risk,
         model_version=MODEL_STATE["model_version"] or "unknown",
     )
+
+
+# ========== DRIFT MONITORING ENDPOINTS ==========
+
+@app.post("/drift/check", response_model=DriftCheckResponse, tags=["Drift Monitoring"])
+async def drift_check(production_data: list[CustomerFeatures]):
+    """Verifica presença de data drift em batch de dados de produção."""
+    if not production_data:
+        raise HTTPException(status_code=400, detail="Lista de dados vazia")
+
+    data_dicts = [d.model_dump() for d in production_data]
+    df_production = pd.DataFrame(data_dicts)
+
+    df_production = standardize_categoricals(df_production)
+    df_production = clip_numeric_features(df_production)
+    df_production = create_age_group(df_production)
+
+    cols_to_drop = [c for c in LEAKAGE_COLS if c in df_production.columns]
+    if cols_to_drop:
+        df_production = df_production.drop(columns=cols_to_drop)
+
+    result = DRIFT_SERVICE.check_drift(df_production)
+
+    logger.info(
+        '{"event":"drift_check","drift_ratio":%.3f,"recommendation":"%s"}',
+        result["drift_ratio"],
+        result["recommendation"],
+    )
+
+    return DriftCheckResponse(**result)
+
+
+@app.get("/drift/report", response_model=DriftReportResponse, tags=["Drift Monitoring"])
+async def drift_report_detailed(sample_size: int = 100):
+    """Gera relatório completo de drift com detalhes por feature."""
+    logger.warning("drift_report_detailed: usando dados de demonstração")
+
+    dummy_production = pd.DataFrame({
+        "age": [35, 42, 28, 55, 31] * (sample_size // 5),
+        "tenure_months": [24, 36, 12, 48, 18] * (sample_size // 5),
+    })
+
+    result = DRIFT_SERVICE.get_detailed_report(dummy_production)
+
+    logger.info(
+        '{"event":"drift_report","total_features":%d,"alerts":%d}',
+        result["total_features"],
+        result["drift_alerts"],
+    )
+
+    return DriftReportResponse(**result)
+
+
+# ========== MODEL MANAGEMENT ENDPOINTS ==========
+
+@app.get("/model/versions", response_model=ModelVersionsResponse, tags=["Model Management"])
+async def list_model_versions():
+    """Lista histórico de versões de modelo treinadas."""
+    result = MODEL_SERVICE.get_model_versions()
+
+    logger.info(
+        '{"event":"list_versions","total_versions":%d,"champion":"%s"}',
+        result["total_versions"],
+        result.get("champion_version", "unknown"),
+    )
+
+    return ModelVersionsResponse(**result)
+
+
+@app.post("/model/retrain-recommendation", response_model=RetargetRecommendation, tags=["Model Management"])
+async def get_retrain_recommendation(drift_ratio: float = 0.0, days_since_retrain: int | None = None):
+    """Recomenda se o modelo deve ser retreinado."""
+    if not 0 <= drift_ratio <= 1:
+        raise HTTPException(status_code=400, detail="drift_ratio deve estar entre 0 e 1")
+
+    result = MODEL_SERVICE.recommend_retrain(
+        drift_ratio=drift_ratio,
+        days_since_last_retrain=days_since_retrain,
+    )
+
+    logger.info(
+        '{"event":"retrain_recommendation","should_retrain":%s,"reason":"%s"}',
+        result["should_retrain"],
+        result["reason"],
+    )
+
+    return RetargetRecommendation(**result)
+
+
+# ========== FEEDBACK ENDPOINTS ==========
+
+@app.post("/feedback", response_model=FeedbackResponse, tags=["Feedback"])
+async def submit_feedback(feedback: FeedbackRequest):
+    """Registra feedback do usuário sobre uma predição."""
+    try:
+        feedback_id = FEEDBACK_SERVICE.log_feedback(
+            prediction_id=feedback.prediction_id,
+            actual_churn=feedback.actual_churn,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment,
+            rating=feedback.rating,
+        )
+
+        logger.info(
+            '{"event":"feedback_received","feedback_id":"%s","prediction_id":"%s"}',
+            feedback_id,
+            feedback.prediction_id,
+        )
+
+        return FeedbackResponse(
+            feedback_id=feedback_id,
+            timestamp=datetime.now(UTC).isoformat(),
+            status="received",
+            message="Feedback registrado com sucesso",
+        )
+    except Exception as e:
+        logger.error(f"Erro ao registrar feedback: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao registrar feedback")
+
+
+@app.get("/feedback/summary", tags=["Feedback"])
+async def feedback_summary():
+    """Retorna sumário de feedback recebido."""
+    summary = FEEDBACK_SERVICE.get_feedback_summary()
+
+    logger.info(
+        '{"event":"feedback_summary","total":%d,"accuracy":%.3f}',
+        summary.get("total_feedback", 0),
+        summary.get("accuracy") or 0,
+    )
+
+    return summary
 
 
 @app.get("/metrics", include_in_schema=False, tags=["Monitoramento"])
