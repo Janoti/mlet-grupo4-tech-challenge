@@ -1,0 +1,74 @@
+# =============================================================================
+# Dockerfile.prod — Imagem otimizada para producao (~1.5 GB vs 8.26 GB)
+#
+# Otimizacoes:
+#   1. Multi-stage build (stage de dependencias vs runtime)
+#   2. PyTorch CPU-only (de ~2 GB para ~280 MB)
+#   3. MLflow mantido (necessario para desserializacao do modelo via registry.py)
+#   4. Cache de pip layers separado
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Exporta requirements.txt via Poetry
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+COPY pyproject.toml poetry.lock ./
+
+RUN pip install --no-cache-dir poetry==1.8.* \
+    && poetry export --only main --without-hashes -f requirements.txt -o requirements.raw.txt \
+    && pip uninstall -y poetry
+
+# Remove PyTorch padrao (com CUDA) das dependencias de runtime
+# PyTorch CPU-only sera instalado separadamente no proximo stage
+RUN grep -v "^torch==" requirements.raw.txt \
+  | grep -v "^nvidia-" \
+  | grep -v "^triton" \
+  > requirements.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime otimizado
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Instala dependencias de sistema minimas
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia requirements filtrados do builder
+COPY --from=builder /build/requirements.txt ./
+
+# Instala PyTorch CPU-only primeiro (cache layer separado — ~280 MB vs ~2 GB)
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+# Instala demais dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia codigo e modelo
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY models/ ./models/
+
+# Variaveis de ambiente
+ENV CHURN_MODEL_PATH=/app/models/churn_pipeline.joblib
+ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import httpx; r=httpx.get('http://localhost:8000/health'); assert r.status_code==200"
+
+# Cria usuario nao-root
+RUN useradd --create-home appuser
+USER appuser
+
+CMD ["python", "-m", "uvicorn", "churn_prediction.api.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
