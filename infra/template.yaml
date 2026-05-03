@@ -286,6 +286,11 @@ Resources:
           ToPort: 9090
           CidrIp: !Ref AllowedCidr
           Description: Prometheus
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: !Ref AllowedCidr
+          Description: MLflow UI
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: "0.0.0.0/0"
@@ -467,6 +472,8 @@ Resources:
                     environment:
                       - CHURN_MODEL_PATH=/app/models/churn_pipeline.joblib
                       - LOG_LEVEL=INFO
+                      - MLFLOW_TRACKING_URI=http://mlflow:5000
+                      - MLFLOW_EXTERNAL_URL=http://${ElasticIP}:5000
                     healthcheck:
                       test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/health'); assert r.status_code==200"]
                       interval: 30s
@@ -533,6 +540,30 @@ Resources:
                         max-size: "10m"
                         max-file: "3"
 
+                  mlflow:
+                    image: ghcr.io/mlflow/mlflow:v2.22.4
+                    container_name: mlflow
+                    ports:
+                      - "5000:5000"
+                    command: >
+                      mlflow server
+                      --host 0.0.0.0
+                      --port 5000
+                      --backend-store-uri sqlite:///mlflow/mlflow.db
+                      --default-artifact-root mlflow-artifacts:/
+                      --serve-artifacts
+                      --artifacts-destination /mlflow/artifacts
+                    volumes:
+                      - mlflow-data:/mlflow
+                    networks:
+                      - churn-net
+                    restart: unless-stopped
+                    logging:
+                      driver: json-file
+                      options:
+                        max-size: "10m"
+                        max-file: "3"
+
                 networks:
                   churn-net:
                     driver: bridge
@@ -540,6 +571,7 @@ Resources:
                 volumes:
                   prometheus-data:
                   grafana-data:
+                  mlflow-data:
               mode: "000644"
               owner: root
               group: root
@@ -633,6 +665,10 @@ Outputs:
   PrometheusUrl:
     Description: URL do Prometheus
     Value: !Sub "http://${ElasticIP}:9090"
+
+  MLflowUrl:
+    Description: URL do MLflow UI
+    Value: !Sub "http://${ElasticIP}:5000"
 
   ECRRepositoryUri:
     Description: URI do repositorio ECR para push de imagens

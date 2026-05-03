@@ -76,10 +76,13 @@ sequenceDiagram
 - **API FastAPI** com endpoints `/predict` e `/health` (Pydantic schemas)
 - **Dockerfile + docker-compose** para deploy containerizado
 - **Model Registry** com seleção automática do champion por métrica de negócio (`valor_liquido`)
-- **Testes automatizados** (40+ testes: smoke, schema, API, integration, registry)
+- **Testes automatizados** (81 testes: smoke, schema, API, integration, registry)
 - **CI/CD** com GitHub Actions (lint, testes, treinamento, build Docker)
 - **Monitoramento de drift** (KS test, Chi², PSI) com simulação
 - **Deploy na AWS** com CloudFormation (VPC, EC2, ECR, Elastic IP, Prometheus, Grafana)
+- **Treino remoto** na EC2 com MLflow tracking (métricas, artifacts, system metrics, tags)
+- **Versionamento automático** de imagens Docker (git hash + timestamp)
+- **Segurança** — iptables hardening, fail2ban, SSH desabilitado, anti-exfiltração
 - **Teste end-to-end** (workflow completo: predict → drift → feedback → retrain recommendation)
 - Documentação técnica e de negócio atualizada
 
@@ -162,7 +165,9 @@ mlet-grupo4-tech-challenge/
 ├── infra/
 │   ├── deploy.sh                # Deploy automatizado (build + ECR + CloudFormation)
 │   ├── template.yaml            # CloudFormation: VPC, EC2, SG, cfn-init
-│   └── Dockerfile.prod          # Imagem otimizada para produção
+│   ├── Dockerfile.prod          # Imagem otimizada para produção
+│   ├── Dockerfile.train         # Imagem para treino remoto na EC2
+│   └── .dockerignore.train      # Dockerignore para build de treino
 ├── Dockerfile
 ├── docker-compose.yml           # API + MLflow + Prometheus + Grafana
 ├── pyproject.toml
@@ -889,7 +894,7 @@ Pipeline automatizado em `.github/workflows/ci_ml_pipeline.yml`:
 
 ## 17. Deploy na AWS (EC2 + CloudFormation)
 
-O projeto inclui infraestrutura como código para deploy automatizado na AWS, com stack completa (API + Prometheus + Grafana) rodando em uma instância EC2 via docker-compose.
+O projeto inclui infraestrutura como código para deploy automatizado na AWS, com stack completa (API + MLflow + Prometheus + Grafana) rodando em uma instância EC2 via docker-compose. O deploy inclui treino remoto com rastreabilidade completa no MLflow (métricas, parâmetros, artifacts e system metrics).
 
 ### 17.1 Arquitetura na AWS
 
@@ -901,10 +906,13 @@ O projeto inclui infraestrutura como código para deploy automatizado na AWS, co
 │  │  ┌─────────────────────────────────────────────┐  │  │
 │  │  │           EC2 (t3.medium)                   │  │  │
 │  │  │                                             │  │  │
-│  │  │  ┌──────────┐ ┌────────────┐ ┌───────────┐ │  │  │
-│  │  │  │churn-api │ │ Prometheus │ │  Grafana  │ │  │  │
-│  │  │  │  :8000   │ │   :9090    │ │   :3000   │ │  │  │
-│  │  │  └──────────┘ └────────────┘ └───────────┘ │  │  │
+│  │  │  ┌──────────┐ ┌────────┐ ┌───────────────┐ │  │  │
+│  │  │  │churn-api │ │ MLflow │ │  Prometheus   │ │  │  │
+│  │  │  │  :8000   │ │ :5000  │ │    :9090      │ │  │  │
+│  │  │  └──────────┘ └────────┘ └───────────────┘ │  │  │
+│  │  │  ┌───────────────────────────────────────┐ │  │  │
+│  │  │  │            Grafana :3000              │ │  │  │
+│  │  │  └───────────────────────────────────────┘ │  │  │
 │  │  │         docker-compose.prod.yml             │  │  │
 │  │  └─────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────┘  │
@@ -916,7 +924,7 @@ O projeto inclui infraestrutura como código para deploy automatizado na AWS, co
 └─────────────────────────────────────────────────────────┘
          │
     ┌────┴─────┐
-    │   ECR    │  (imagem Docker da API)
+    │   ECR    │  (imagens Docker: API + treino)
     └──────────┘
 ```
 
@@ -924,82 +932,84 @@ O projeto inclui infraestrutura como código para deploy automatizado na AWS, co
 
 - AWS CLI v2 configurado (`aws sts get-caller-identity`)
 - Docker rodando localmente
-- Modelo exportado em `models/churn_pipeline.joblib`
+- Poetry instalado (para treino local no primeiro deploy)
 
 ### 17.3 Deploy automatizado (recomendado)
 
-O script `deploy.sh` executa o fluxo completo: build da imagem → push para ECR → deploy CloudFormation.
+Um único comando faz tudo — treino, build, push e deploy:
 
 ```bash
-# Deploy completo (build + push + stack)
 ./infra/deploy.sh
-
-# Apenas atualizar a stack (sem rebuild da imagem)
-./infra/deploy.sh --stack-only
-
-# Apenas build + push (sem deploy CloudFormation)
-./infra/deploy.sh --build-only
-
-# Destruir toda a stack
-./infra/deploy.sh --destroy
 ```
 
-Variáveis de ambiente configuráveis:
+**Primeiro deploy (do zero):** o script detecta que a stack não existe e executa:
+1. Treino local (notebooks) → exporta modelo
+2. Build da imagem → push para ECR
+3. Deploy CloudFormation (sobe API + MLflow + Prometheus + Grafana)
+4. Treino remoto na EC2 (popula MLflow com métricas, artifacts e system metrics)
+5. Rebuild + redeploy com modelo do treino remoto
+
+**Deploys seguintes:** o script detecta a stack existente e executa:
+1. Treino remoto na EC2 (registra direto no MLflow de produção)
+2. Build da imagem com modelo novo → push para ECR
+3. Update da stack CloudFormation
+
+**Flags disponíveis:**
+
+```bash
+./infra/deploy.sh                    # deploy completo (treino + build + deploy)
+./infra/deploy.sh --skip-train       # build + deploy (sem retreinar)
+./infra/deploy.sh --train-only       # só treina e exporta modelo
+./infra/deploy.sh --build-only       # só build + push ECR
+./infra/deploy.sh --stack-only       # só atualiza CloudFormation
+./infra/deploy.sh --destroy          # destrói toda a stack
+```
+
+**Variáveis de ambiente configuráveis:**
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
 | `STACK_NAME` | `churn-prediction-stack` | Nome da stack CloudFormation |
 | `AWS_REGION` | `sa-east-1` | Região AWS |
 | `INSTANCE_TYPE` | `t3.medium` | Tipo da instância EC2 |
-| `IMAGE_TAG` | `latest` | Tag da imagem Docker no ECR |
+| `IMAGE_TAG` | auto (`git-hash-timestamp`) | Tag da imagem Docker no ECR |
 | `GRAFANA_PASSWORD` | `mletg4` | Senha do admin do Grafana |
 
-### 17.4 Deploy manual (passo a passo)
+### 17.4 Versionamento de imagens
+
+Cada deploy gera uma tag versionada automaticamente (ex: `abc1234-20260502-1830`), baseada no git short hash + timestamp. A tag `latest` é sempre atualizada como alias.
 
 ```bash
-# 1. Exportar o modelo treinado
-PYTHONPATH=src poetry run python scripts/export_model.py
+./infra/deploy.sh                          # → auto: abc1234-20260502-1830
+IMAGE_TAG=v2.0.0 ./infra/deploy.sh         # → manual: v2.0.0
 
-# 2. Build da imagem otimizada para produção
-docker build -f infra/Dockerfile.prod -t churn-prediction-stack/churn-api:latest .
-
-# 3. Criar repositório ECR e fazer push
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.sa-east-1.amazonaws.com/churn-prediction-stack/churn-api"
-
-aws ecr create-repository --repository-name churn-prediction-stack/churn-api --region sa-east-1 2>/dev/null || true
-aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.sa-east-1.amazonaws.com"
-docker tag churn-prediction-stack/churn-api:latest "$ECR_URI:latest"
-docker push "$ECR_URI:latest"
-
-# 4. Criar a stack CloudFormation
-aws cloudformation deploy \
-  --template-file infra/template.yaml \
-  --stack-name churn-prediction-stack \
-  --region sa-east-1 \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides \
-    InstanceType=t3.medium \
-    ImageTag=latest \
-    GrafanaPassword=mletg4
-
-# 5. Verificar outputs (URLs dos serviços)
-aws cloudformation describe-stacks \
-  --stack-name churn-prediction-stack \
-  --region sa-east-1 \
-  --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
-  --output table
+# Rollback para versão anterior
+IMAGE_TAG=abc1234-20260502-1830 ./infra/deploy.sh --skip-train
 ```
 
-### 17.5 O que o CloudFormation provisiona
+### 17.5 Treino remoto e MLflow
+
+O treino roda dentro de um container Docker na EC2, conectado diretamente ao MLflow server. Isso garante:
+
+| Dado | Capturado? | Como |
+|------|-----------|------|
+| Métricas (roc_auc, f1, valor_liquido) | ✅ | `mlflow.log_metrics()` nos notebooks |
+| Parâmetros (C, learning_rate, epochs) | ✅ | `mlflow.log_params()` nos notebooks |
+| Artifacts (modelo PyTorch, pipeline) | ✅ | `mlflow.pytorch.log_model()` |
+| System metrics (CPU, memória, disco) | ✅ | `mlflow.enable_system_metrics_logging()` |
+| Tags (champion, deploy_timestamp) | ✅ | `export_model.py` marca o champion |
+
+O champion é selecionado automaticamente entre **todos os modelos** (baselines + MLP) pela métrica `valor_liquido`, com desempate por `roc_auc`. O nome do MLP é versionado com timestamp (ex: `mlp_pytorch_20260502_2013`).
+
+### 17.6 O que o CloudFormation provisiona
 
 | Recurso | Descrição |
 |---------|-----------|
 | **VPC** | Rede isolada (10.0.0.0/16) com subnet pública |
 | **EC2** | Instância com Docker, docker-compose e cfn-init |
 | **Elastic IP** | IP fixo para a API |
-| **Security Groups** | Portas 8000 (API), 3000 (Grafana), 9090 (Prometheus) |
-| **ECR** | Repositório de imagens Docker (gerenciado pelo `deploy.sh`) |
+| **Security Groups** | Portas 8000 (API), 5000 (MLflow), 3000 (Grafana), 9090 (Prometheus) |
+| **ECR** | Repositórios de imagens Docker (API + treino) |
 | **IAM Role** | Permissões para ECR pull, CloudWatch Logs, SSM |
 | **VPC Flow Logs** | Logs de rede → CloudWatch (retenção 14 dias) |
 
@@ -1008,9 +1018,11 @@ Conformidade com governança:
 - KMS encryption (EBS, ECR, CloudWatch Logs)
 - IMDSv2 obrigatório
 - VPC Flow Logs habilitados
-- SSH restrito a CIDR interno (`10.0.0.0/8`)
+- SSH desabilitado (acesso via SSM Session Manager)
+- iptables hardening (INPUT/OUTPUT policy DROP, anti-exfiltração)
+- fail2ban ativo
 
-### 17.6 Validação pós-deploy
+### 17.7 Validação pós-deploy
 
 Aguarde ~3-5 minutos após o `CREATE_COMPLETE` para os containers inicializarem.
 
@@ -1018,10 +1030,10 @@ Aguarde ~3-5 minutos após o `CREATE_COMPLETE` para os containers inicializarem.
 # Health check
 curl http://<ELASTIC_IP>:8000/health
 
-# Predição de teste
+# Predição de teste (cliente com alto risco de churn)
 curl -X POST http://<ELASTIC_IP>:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"age": 45, "gender": "female", "plan_type": "pos", "monthly_charges": 120, "nps_score": 3}'
+  -d '{"age": 22, "gender": "male", "plan_type": "pre", "nps_score": 0, "support_calls_30d": 9, "tenure_months": 2, "default_flag": 1}'
 
 # Simular drift para testar observabilidade
 poetry run python scripts/simulate_drift.py --url http://<ELASTIC_IP>:8000 --n-requests 300
@@ -1035,10 +1047,29 @@ PYTHONPATH=src poetry run python scripts/check_drift.py \
 | Serviço | URL | Credencial |
 |---------|-----|------------|
 | API (Swagger) | `http://<ELASTIC_IP>:8000/docs` | — |
+| MLflow UI | `http://<ELASTIC_IP>:5000` | — |
 | Prometheus | `http://<ELASTIC_IP>:9090` | — |
 | Grafana | `http://<ELASTIC_IP>:3000` | `mletg4` / `<GrafanaPassword>` |
 
-### 17.7 Destruição da stack
+### 17.8 Retreino do modelo
+
+Para retreinar e redeployar com o novo modelo:
+
+```bash
+# Retreino completo (treina na EC2 + rebuild + redeploy)
+./infra/deploy.sh
+
+# Só retreinar (sem redeploy — útil para comparar modelos no MLflow)
+./infra/deploy.sh --train-only
+```
+
+O MLflow UI mostra o histórico completo de treinos com:
+- Comparação de métricas entre versões
+- Tag `champion=true` no modelo em produção
+- Timestamp de cada deploy
+- Artifacts do modelo PyTorch
+
+### 17.9 Destruição da stack
 
 ```bash
 # Via script (limpa ECR + VPC Endpoints do GuardDuty + deleta stack)

@@ -13,17 +13,20 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from churn_prediction.api.drift_service import DriftService
+from churn_prediction.api.feedback_service import FeedbackService
 from churn_prediction.api.middleware import observability_middleware
+from churn_prediction.api.model_service import ModelService
 from churn_prediction.api.prometheus_metrics import (
     model_info,
     model_loaded,
@@ -34,24 +37,25 @@ from churn_prediction.api.prometheus_metrics import (
 )
 from churn_prediction.api.schemas import (
     CustomerFeatures,
-    HealthResponse,
-    PredictionResponse,
     DriftCheckResponse,
     DriftReportResponse,
-    ModelVersionsResponse,
-    RetargetRecommendation,
     FeedbackRequest,
     FeedbackResponse,
+    HealthResponse,
+    ModelVersionsResponse,
+    PredictionResponse,
+    RetargetRecommendation,
 )
-from churn_prediction.api.drift_service import DriftService
-from churn_prediction.api.model_service import ModelService
-from churn_prediction.api.feedback_service import FeedbackService
 from churn_prediction.config import LEAKAGE_COLS
-from churn_prediction.data_cleaning import clip_numeric_features, create_age_group, standardize_categoricals
-
-UTC = timezone.utc
+from churn_prediction.data_cleaning import (
+    clip_numeric_features,
+    create_age_group,
+    standardize_categoricals,
+)
 
 logger = logging.getLogger("churn_api")
+
+MLFLOW_URL = os.environ.get("MLFLOW_EXTERNAL_URL", "http://localhost:5000")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -125,7 +129,8 @@ app = FastAPI(
         "- **Feedback**: Coleta de feedback para análise de performance\n\n"
         "**Documentação**: Veja [API.md](../docs/API.md) para guias de integração.\n"
         "**Exemplos**: Consulte `/docs` para endpoint interativo.\n"
-        "**MLflow**: Ver histórico de treinamentos em `http://localhost:5000`."
+        "**MLflow**: Ver histórico de treinamentos em "
+        f"`{MLFLOW_URL}`."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -354,7 +359,7 @@ async def submit_feedback(feedback: FeedbackRequest):
         )
     except Exception as e:
         logger.error(f"Erro ao registrar feedback: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao registrar feedback")
+        raise HTTPException(status_code=500, detail="Erro ao registrar feedback") from e
 
 
 @app.get("/feedback/summary", tags=["Feedback"])
@@ -381,8 +386,10 @@ async def metrics():
 
 
 @app.get("/", tags=["Info"])
-async def root():
+async def root(request: Request):
     """Informações sobre a API."""
+    host = request.headers.get("host", "localhost").split(":")[0]
+    mlflow_ui = f"http://{host}:5000"
     return {
         "name": "Churn Prediction API",
         "version": "1.0.0",
@@ -403,6 +410,6 @@ async def root():
         "links": {
             "documentation": "/docs",
             "api_markdown": "../docs/API.md",
-            "mlflow_ui": "http://localhost:5000",
+            "mlflow_ui": mlflow_ui,
         },
     }

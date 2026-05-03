@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +21,7 @@ class FeedbackService:
             feedback_dir: Diretório para armazenar feedback em JSONL.
                           Padrão: logs/feedback/
         """
-        self.feedback_dir = Path(feedback_dir or "logs/feedback")
+        self.feedback_dir = Path(feedback_dir or os.environ.get("FEEDBACK_DIR", "/tmp/churn-feedback"))
         self.feedback_dir.mkdir(parents=True, exist_ok=True)
         self.feedback_file = self.feedback_dir / "feedback.jsonl"
 

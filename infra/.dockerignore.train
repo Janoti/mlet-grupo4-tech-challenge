@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+.tmp
+mlruns
+data/interim
+data/processed
+docs
+tests
+.ruff_cache
+*.egg-info
+.mypy_cache
+.pytest_cache
