@@ -10,9 +10,11 @@
 #   - Security Groups sem SSH aberto para 0.0.0.0/0
 #
 # Uso:
-#   ./infra/deploy.sh                    # deploy completo
-#   ./infra/deploy.sh --stack-only       # so atualiza a stack (sem rebuild)
+#   ./infra/deploy.sh                    # deploy completo (treino + build + deploy)
+#   ./infra/deploy.sh --skip-train       # build + deploy (sem retreinar)
+#   ./infra/deploy.sh --train-only       # so treina e exporta modelo (registra no MLflow prod)
 #   ./infra/deploy.sh --build-only       # so build + push (sem deploy CFN)
+#   ./infra/deploy.sh --stack-only       # so atualiza a stack (sem rebuild)
 #   ./infra/deploy.sh --destroy          # destroi stack + ECR images
 #
 # Pre-requisitos:
@@ -27,10 +29,15 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 STACK_NAME="${STACK_NAME:-churn-prediction-stack}"
 AWS_REGION="${AWS_REGION:-sa-east-1}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.medium}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-mletg4}"
+
+# Versionamento automático: git-hash + timestamp (ex: abc1234-20260502-1812)
+# Pode ser sobrescrito com IMAGE_TAG=v1.0.0 ./infra/deploy.sh
+GIT_SHORT_HASH=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --short HEAD 2>/dev/null || echo "unknown")
+AUTO_TAG="${GIT_SHORT_HASH}-$(date +%Y%m%d-%H%M)"
+IMAGE_TAG="${IMAGE_TAG:-$AUTO_TAG}"
 
 # Tags de governança obrigatórias (padrão hubfintech)
 TAG_SE_ORG="${TAG_SE_ORG:-fintech}"
@@ -71,6 +78,142 @@ check_prerequisites() {
 
     ECR_REPO_NAME="$STACK_NAME/churn-api"
     ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME"
+}
+
+# ---------------------------------------------------------------------------
+# Treino + Export do modelo (registra no MLflow de produção)
+# ---------------------------------------------------------------------------
+train_and_export() {
+    log "=== FASE 0: Treino e exportação do modelo ==="
+
+    # Resolve a URL do MLflow de produção
+    local MLFLOW_URL
+    MLFLOW_URL=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='MLflowUrl'].OutputValue" \
+        --output text 2>/dev/null || echo "")
+
+    if [ -n "$MLFLOW_URL" ] && [ "$MLFLOW_URL" != "None" ]; then
+        log "MLflow de produção detectado: $MLFLOW_URL"
+        log "Executando treino remoto na EC2 (system metrics + artifacts automáticos)..."
+        train_remote "$MLFLOW_URL"
+    else
+        log "MLflow de produção não encontrado. Treinando localmente..."
+        train_local
+    fi
+}
+
+train_local() {
+    # Gerar dados se não existem
+    if [ ! -f "$PROJECT_ROOT/data/raw/telecom_churn_base_extended.csv" ]; then
+        log "Gerando dataset sintético..."
+        (cd "$PROJECT_ROOT" && poetry run python scripts/generate_synthetic.py \
+            --n-rows 50000 --seed 42 --out-dir data/raw)
+    fi
+
+    log "Executando pipeline de treino (notebooks)..."
+    (cd "$PROJECT_ROOT" && make notebooks)
+
+    log "Selecionando e exportando champion..."
+    (cd "$PROJECT_ROOT" && PYTHONPATH=src poetry run python scripts/export_model.py)
+
+    [ -f "$PROJECT_ROOT/models/churn_pipeline.joblib" ] \
+        || error "Modelo não foi exportado."
+    log "Modelo exportado: models/churn_pipeline.joblib"
+}
+
+train_remote() {
+    local MLFLOW_URL="$1"
+
+    log "Build da imagem de treino..."
+    # Troca dockerignore temporariamente (treino precisa de data/raw e notebooks)
+    mv "$PROJECT_ROOT/.dockerignore" "$PROJECT_ROOT/.dockerignore.prod"
+    cp "$SCRIPT_DIR/.dockerignore.train" "$PROJECT_ROOT/.dockerignore"
+    docker build \
+        -f "$SCRIPT_DIR/Dockerfile.train" \
+        -t "$STACK_NAME/churn-train:latest" \
+        "$PROJECT_ROOT"
+    mv "$PROJECT_ROOT/.dockerignore.prod" "$PROJECT_ROOT/.dockerignore"
+
+    log "Push da imagem de treino para ECR..."
+    local TRAIN_REPO="$STACK_NAME/churn-train"
+    local TRAIN_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$TRAIN_REPO"
+
+    aws ecr create-repository \
+        --repository-name "$TRAIN_REPO" \
+        --region "$AWS_REGION" >/dev/null 2>&1 || true
+
+    docker tag "$STACK_NAME/churn-train:latest" "$TRAIN_URI:latest"
+    docker push "$TRAIN_URI:latest"
+
+    log "Executando treino na EC2..."
+    local INSTANCE_ID
+    INSTANCE_ID=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
+        --output text)
+
+    local CMD_ID
+    CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters "{\"commands\":[
+            \"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com 2>&1\",
+            \"docker pull $TRAIN_URI:latest 2>&1 | tail -3\",
+            \"docker run --rm --network churn-app_churn-net -e MLFLOW_TRACKING_URI=http://mlflow:5000 -v /opt/churn-app/models:/app/models $TRAIN_URI:latest 2>&1\",
+            \"ls -la /opt/churn-app/models/churn_pipeline.joblib\"
+        ]}" \
+        --timeout-seconds 900 \
+        --region "$AWS_REGION" \
+        --query 'Command.CommandId' --output text)
+
+    log "Treino iniciado (command_id=$CMD_ID). Aguardando conclusão (~5-10 min)..."
+
+    # Aguardar conclusão
+    local STATUS="InProgress"
+    while [ "$STATUS" = "InProgress" ] || [ "$STATUS" = "Pending" ]; do
+        sleep 30
+        STATUS=$(aws ssm get-command-invocation \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query 'Status' --output text 2>/dev/null || echo "InProgress")
+        log "  Status: $STATUS"
+    done
+
+    if [ "$STATUS" != "Success" ]; then
+        warn "Treino remoto falhou (status=$STATUS). Logs:"
+        aws ssm get-command-invocation \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query 'StandardErrorContent' --output text 2>/dev/null | tail -20
+        error "Treino remoto falhou. Verifique os logs acima."
+    fi
+
+    log "Treino remoto concluído. Copiando modelo da EC2..."
+
+    # Copiar modelo da EC2 para local (para o build da imagem de produção)
+    CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters '{"commands":["cat /opt/churn-app/models/churn_pipeline.joblib | base64"]}' \
+        --region "$AWS_REGION" \
+        --query 'Command.CommandId' --output text)
+    sleep 10
+
+    aws ssm get-command-invocation \
+        --command-id "$CMD_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --region "$AWS_REGION" \
+        --query 'StandardOutputContent' --output text \
+        | base64 -d > "$PROJECT_ROOT/models/churn_pipeline.joblib"
+
+    [ -s "$PROJECT_ROOT/models/churn_pipeline.joblib" ] \
+        || error "Falha ao copiar modelo da EC2."
+    log "Modelo copiado: models/churn_pipeline.joblib"
 }
 
 # ---------------------------------------------------------------------------
@@ -120,11 +263,13 @@ build_and_push() {
         | docker login --username AWS --password-stdin \
           "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-    # Tag + Push
+    # Tag + Push (versão + latest)
     docker tag "$STACK_NAME/churn-api:$IMAGE_TAG" "$ECR_URI:$IMAGE_TAG"
+    docker tag "$STACK_NAME/churn-api:$IMAGE_TAG" "$ECR_URI:latest"
     docker push "$ECR_URI:$IMAGE_TAG"
+    docker push "$ECR_URI:latest"
 
-    log "Imagem publicada: $ECR_URI:$IMAGE_TAG"
+    log "Imagem publicada: $ECR_URI:$IMAGE_TAG (+ latest)"
 }
 
 # ---------------------------------------------------------------------------
@@ -281,6 +426,16 @@ destroy_stack() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+is_stack_deployed() {
+    local status
+    status=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].StackStatus' \
+        --output text 2>/dev/null || echo "NOT_FOUND")
+    [[ "$status" == *"COMPLETE"* ]]
+}
+
 main() {
     check_prerequisites
 
@@ -291,12 +446,49 @@ main() {
         --stack-only)
             deploy_stack
             ;;
+        --train-only)
+            train_and_export
+            ;;
         --destroy)
             destroy_stack
             ;;
-        *)
+        --skip-train)
             build_and_push
             deploy_stack
+            ;;
+        *)
+            if is_stack_deployed; then
+                # Stack existe: treino remoto → build → deploy
+                log "Stack existente detectada. Fluxo: treino remoto → build → deploy"
+                train_and_export
+                build_and_push
+                deploy_stack
+            else
+                # Primeiro deploy: build com modelo local → deploy infra → treino remoto → rebuild → redeploy
+                log "Primeiro deploy detectado. Fluxo: infra → treino remoto → redeploy"
+
+                # Fase 1: treino local + build + deploy (sobe a infra com modelo inicial)
+                train_local
+                build_and_push
+                deploy_stack
+
+                # Fase 2: aguardar containers e retreinar na EC2 (popula MLflow)
+                log "Aguardando containers inicializarem (60s)..."
+                sleep 60
+
+                log "=== FASE EXTRA: Retreino remoto para popular MLflow ==="
+                train_remote "$(aws cloudformation describe-stacks \
+                    --stack-name "$STACK_NAME" \
+                    --region "$AWS_REGION" \
+                    --query "Stacks[0].Outputs[?OutputKey=='MLflowUrl'].OutputValue" \
+                    --output text)"
+
+                # Fase 3: rebuild com modelo do treino remoto + redeploy
+                build_and_push
+                deploy_stack
+
+                log "Deploy completo! MLflow populado com experimentos e artifacts."
+            fi
             ;;
     esac
 }

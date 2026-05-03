@@ -349,8 +349,10 @@ def export_champion(
     logger.info("Flavor detectado para champion '%s': %s", champion["run_name"], flavor)
 
     if flavor == "pytorch":
+        mlflow.set_tracking_uri(tracking_uri)
         pipeline = _load_champion_pytorch(champion, data)
     elif flavor == "sklearn":
+        mlflow.set_tracking_uri(tracking_uri)
         model_uri = f"runs:/{champion['run_id']}/model"
         pipeline = mlflow.sklearn.load_model(model_uri)
         logger.info("Pipeline sklearn carregado do MLflow (run_id=%s).", champion["run_id"][:8])

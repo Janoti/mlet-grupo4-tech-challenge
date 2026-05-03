@@ -13,15 +13,20 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from churn_prediction.api.drift_service import DriftService
+from churn_prediction.api.feedback_service import FeedbackService
 from churn_prediction.api.middleware import observability_middleware
+from churn_prediction.api.model_service import ModelService
 from churn_prediction.api.prometheus_metrics import (
     model_info,
     model_loaded,
@@ -32,13 +37,25 @@ from churn_prediction.api.prometheus_metrics import (
 )
 from churn_prediction.api.schemas import (
     CustomerFeatures,
+    DriftCheckResponse,
+    DriftReportResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     HealthResponse,
+    ModelVersionsResponse,
     PredictionResponse,
+    RetargetRecommendation,
 )
 from churn_prediction.config import LEAKAGE_COLS
-from churn_prediction.data_cleaning import clip_numeric_features, create_age_group, standardize_categoricals
+from churn_prediction.data_cleaning import (
+    clip_numeric_features,
+    create_age_group,
+    standardize_categoricals,
+)
 
 logger = logging.getLogger("churn_api")
+
+MLFLOW_URL = os.environ.get("MLFLOW_EXTERNAL_URL", "http://localhost:5000")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -51,6 +68,11 @@ MODEL_STATE: dict = {
     "pipeline": None,
     "model_version": None,
 }
+
+# Serviços
+DRIFT_SERVICE = DriftService()
+MODEL_SERVICE = ModelService()
+FEEDBACK_SERVICE = FeedbackService()
 
 MODEL_PATH = os.getenv(
     "CHURN_MODEL_PATH",
@@ -99,15 +121,34 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Churn Prediction API",
     description=(
-        "API para predição de churn em telecom. "
-        "Recebe dados de um cliente e retorna probabilidade de churn, "
-        "predição binária e faixa de risco."
+        "**API de Predição de Churn em Telecom**\n\n"
+        "Endpoints para:\n"
+        "- **Inferência**: Predições de churn com probabilidade e nível de risco\n"
+        "- **Drift Monitoring**: Detecção de data drift vs. distribuição de treino\n"
+        "- **Model Management**: Histórico de versões e recomendações de retreinamento\n"
+        "- **Feedback**: Coleta de feedback para análise de performance\n\n"
+        "**Documentação**: Veja [API.md](../docs/API.md) para guias de integração.\n"
+        "**Exemplos**: Consulte `/docs` para endpoint interativo.\n"
+        "**MLflow**: Ver histórico de treinamentos em "
+        f"`{MLFLOW_URL}`."
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
-# Único middleware: mede latência uma vez e propaga para header HTTP,
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Observability middleware: mede latência uma vez e propaga para header HTTP,
 # log estruturado e métricas Prometheus.
 app.middleware("http")(observability_middleware)
 
@@ -203,6 +244,138 @@ async def predict(customer: CustomerFeatures):
     )
 
 
+# ========== DRIFT MONITORING ENDPOINTS ==========
+
+@app.post("/drift/check", response_model=DriftCheckResponse, tags=["Drift Monitoring"])
+async def drift_check(production_data: list[CustomerFeatures]):
+    """Verifica presença de data drift em batch de dados de produção."""
+    if not production_data:
+        raise HTTPException(status_code=400, detail="Lista de dados vazia")
+
+    data_dicts = [d.model_dump() for d in production_data]
+    df_production = pd.DataFrame(data_dicts)
+
+    df_production = standardize_categoricals(df_production)
+    df_production = clip_numeric_features(df_production)
+    df_production = create_age_group(df_production)
+
+    cols_to_drop = [c for c in LEAKAGE_COLS if c in df_production.columns]
+    if cols_to_drop:
+        df_production = df_production.drop(columns=cols_to_drop)
+
+    result = DRIFT_SERVICE.check_drift(df_production)
+
+    logger.info(
+        '{"event":"drift_check","drift_ratio":%.3f,"recommendation":"%s"}',
+        result["drift_ratio"],
+        result["recommendation"],
+    )
+
+    return DriftCheckResponse(**result)
+
+
+@app.get("/drift/report", response_model=DriftReportResponse, tags=["Drift Monitoring"])
+async def drift_report_detailed(sample_size: int = 100):
+    """Gera relatório completo de drift com detalhes por feature."""
+    logger.warning("drift_report_detailed: usando dados de demonstração")
+
+    dummy_production = pd.DataFrame({
+        "age": [35, 42, 28, 55, 31] * (sample_size // 5),
+        "tenure_months": [24, 36, 12, 48, 18] * (sample_size // 5),
+    })
+
+    result = DRIFT_SERVICE.get_detailed_report(dummy_production)
+
+    logger.info(
+        '{"event":"drift_report","total_features":%d,"alerts":%d}',
+        result["total_features"],
+        result["drift_alerts"],
+    )
+
+    return DriftReportResponse(**result)
+
+
+# ========== MODEL MANAGEMENT ENDPOINTS ==========
+
+@app.get("/model/versions", response_model=ModelVersionsResponse, tags=["Model Management"])
+async def list_model_versions():
+    """Lista histórico de versões de modelo treinadas."""
+    result = MODEL_SERVICE.get_model_versions()
+
+    logger.info(
+        '{"event":"list_versions","total_versions":%d,"champion":"%s"}',
+        result["total_versions"],
+        result.get("champion_version", "unknown"),
+    )
+
+    return ModelVersionsResponse(**result)
+
+
+@app.post("/model/retrain-recommendation", response_model=RetargetRecommendation, tags=["Model Management"])
+async def get_retrain_recommendation(drift_ratio: float = 0.0, days_since_retrain: int | None = None):
+    """Recomenda se o modelo deve ser retreinado."""
+    if not 0 <= drift_ratio <= 1:
+        raise HTTPException(status_code=400, detail="drift_ratio deve estar entre 0 e 1")
+
+    result = MODEL_SERVICE.recommend_retrain(
+        drift_ratio=drift_ratio,
+        days_since_last_retrain=days_since_retrain,
+    )
+
+    logger.info(
+        '{"event":"retrain_recommendation","should_retrain":%s,"reason":"%s"}',
+        result["should_retrain"],
+        result["reason"],
+    )
+
+    return RetargetRecommendation(**result)
+
+
+# ========== FEEDBACK ENDPOINTS ==========
+
+@app.post("/feedback", response_model=FeedbackResponse, tags=["Feedback"])
+async def submit_feedback(feedback: FeedbackRequest):
+    """Registra feedback do usuário sobre uma predição."""
+    try:
+        feedback_id = FEEDBACK_SERVICE.log_feedback(
+            prediction_id=feedback.prediction_id,
+            actual_churn=feedback.actual_churn,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment,
+            rating=feedback.rating,
+        )
+
+        logger.info(
+            '{"event":"feedback_received","feedback_id":"%s","prediction_id":"%s"}',
+            feedback_id,
+            feedback.prediction_id,
+        )
+
+        return FeedbackResponse(
+            feedback_id=feedback_id,
+            timestamp=datetime.now(UTC).isoformat(),
+            status="received",
+            message="Feedback registrado com sucesso",
+        )
+    except Exception as e:
+        logger.error(f"Erro ao registrar feedback: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao registrar feedback") from e
+
+
+@app.get("/feedback/summary", tags=["Feedback"])
+async def feedback_summary():
+    """Retorna sumário de feedback recebido."""
+    summary = FEEDBACK_SERVICE.get_feedback_summary()
+
+    logger.info(
+        '{"event":"feedback_summary","total":%d,"accuracy":%.3f}',
+        summary.get("total_feedback", 0),
+        summary.get("accuracy") or 0,
+    )
+
+    return summary
+
+
 @app.get("/metrics", include_in_schema=False, tags=["Monitoramento"])
 async def metrics():
     """Endpoint Prometheus — expõe métricas em formato texto para scraping."""
@@ -213,13 +386,30 @@ async def metrics():
 
 
 @app.get("/", tags=["Info"])
-async def root():
+async def root(request: Request):
     """Informações sobre a API."""
+    host = request.headers.get("host", "localhost").split(":")[0]
+    mlflow_ui = f"http://{host}:5000"
     return {
         "name": "Churn Prediction API",
         "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health",
-        "predict": "/predict (POST)",
-        "metrics": "/metrics",
+        "description": "Predição de churn em telecom com monitoramento de drift e feedback",
+        "docs": "/docs (Swagger interactive)",
+        "redoc": "/redoc (ReDoc documentation)",
+        "endpoints": {
+            "health": "GET /health",
+            "predict": "POST /predict",
+            "drift_check": "POST /drift/check",
+            "drift_report": "GET /drift/report",
+            "model_versions": "GET /model/versions",
+            "retrain_recommendation": "POST /model/retrain-recommendation",
+            "feedback": "POST /feedback",
+            "feedback_summary": "GET /feedback/summary",
+            "metrics": "GET /metrics (Prometheus)",
+        },
+        "links": {
+            "documentation": "/docs",
+            "api_markdown": "../docs/API.md",
+            "mlflow_ui": mlflow_ui,
+        },
     }
