@@ -86,6 +86,60 @@ sequenceDiagram
 - **Teste end-to-end** (workflow completo: predict → drift → feedback → retrain recommendation)
 - Documentação técnica e de negócio atualizada
 
+## Quick Start (sem Makefile)
+
+Caminho mais curto para clonar o repositório e subir a API containerizada com o modelo treinado:
+
+```bash
+# 1. Clone e instale as dependências
+git clone https://github.com/Janoti/mlet-grupo4-tech-challenge.git
+cd mlet-grupo4-tech-challenge
+poetry install
+
+# 2. Gere o dataset sintético
+poetry run python scripts/generate_synthetic.py --n-rows 50000 --seed 42 --out-dir data/raw
+
+# 3. Treine e exporte o pipeline (gera models/churn_pipeline.joblib)
+#    Pré-requisito: rodar os notebooks (make notebooks) ou ter runs no MLflow.
+PYTHONPATH=src poetry run python scripts/export_model.py
+
+# 4. Suba a stack (API + MLflow + Prometheus + Grafana) em background
+docker compose up -d --build
+
+# 5. Valide
+curl http://localhost:8000/health
+```
+
+URLs disponíveis após o passo 4: API em http://localhost:8000/docs, MLflow em
+http://localhost:5000, Prometheus em http://localhost:9090, Grafana em
+http://localhost:3000 (`mletg4` / `mletg4`). Para apenas a API:
+`docker compose up -d --build churn-api`.
+
+> Para rodar a API direto na máquina (sem Docker), pule os passos 4–5 e use
+> `PYTHONPATH=src poetry run uvicorn churn_prediction.api.main:app --reload`.
+> Para o pipeline completo automatizado (notebooks + análise + MLflow), use
+> `make run-all` — ver [seção 7.1](#71-atalhos-com-makefile).
+
+## Modos de execução
+
+Escolha o caminho conforme o objetivo. Todos os modos partem de `git clone` + `poetry install`.
+
+| Modo | Comando principal | Quando usar | Detalhes |
+|---|---|---|---|
+| **Pipeline completo (Makefile)** | `make run-all` | Reproduzir tudo do zero: EDA → baselines → MLP → MLflow UI | [§7.1](#71-atalhos-com-makefile) e [§9](#9-fluxo-recomendado) |
+| **Quick Start manual (Docker)** | `docker compose up -d --build` | Subir API + observabilidade sem Makefile (precisa de `mlruns/` populado antes) | [Quick Start](#quick-start-sem-makefile) |
+| **API local sem Docker** | `uvicorn churn_prediction.api.main:app --reload` | Desenvolver/depurar a API com hot-reload | [§13.1](#131-passo-a-passo-para-rodar-localmente) |
+| **API containerizada (só API)** | `docker compose up -d --build churn-api` | Servir só a API sem Prometheus/Grafana | [§13.2](#132-passo-a-passo-via-docker) |
+| **Stack de observabilidade** | `docker compose up -d --build` | API + MLflow + Prometheus + Grafana com dashboards provisionados | [§14](#14-observabilidade--prometheus--grafana) |
+| **Só MLflow UI** | `make mlflow` ou `mlflow ui --backend-store-uri ./mlruns` | Inspecionar runs já registrados | [§11](#11-mlflow-opcional-local) |
+| **Notebooks individuais** | `make notebooks-eda` / `notebooks-baselines` / `notebooks-mlp` | Rodar uma etapa do pipeline sem refazer tudo | [§7.1](#71-atalhos-com-makefile) |
+| **Treino + export sem notebooks** | `make notebooks && PYTHONPATH=src poetry run python scripts/export_model.py` | Popular `mlruns/` e exportar champion sem subir API | [§5](#5-model-registry-e-seleção-do-champion) |
+| **Deploy AWS** | `./infra/deploy.sh` | Subir stack completa em EC2 com CloudFormation | [§17](#17-deploy-na-aws-ec2--cloudformation) |
+
+> **Pré-requisito comum:** os modos que exportam ou servem o modelo
+> (`export_model.py`, `docker compose`, `uvicorn`) exigem `mlruns/` populado.
+> Rode `make run-all` ou `make notebooks` antes na primeira execução.
+
 ## 1. Objetivo
 
 - Estimar a probabilidade de churn por cliente
